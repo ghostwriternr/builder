@@ -174,6 +174,7 @@ npm run typecheck
 npm run test:node
 npm run test:workers
 npm run test:operational
+npm run test:session-cache
 npm run test:bundle-shape
 npm run test:startup
 npm run test:risk
@@ -199,10 +200,11 @@ The tests prove:
 - alternate full-AST controls are positive: `@babel/parser@8.0.0` returns a full Babel TSX AST inside workerd, the internal `experimentalParseReactTsxAst()` helper wraps it with diagnostics plus ranges/comments/tokens, and `@swc/wasm-web@1.15.43` initializes from an imported `WebAssembly.Module`; the internal `experimentalParseTransformReactTsxWithSwc()` helper parses TSX into an SWC AST and transforms TSX from either source or the parsed AST, but SWC remains archived spike evidence because of its bundle shape;
 - local relative multi-module graphs can be discovered through Oxc-backed graph metadata, transformed into Worker Loader modules, and loaded successfully;
 - `experimentalCreateDynamicWorkerBuildSession()` provides an edit-loop wrapper with revision/dirty metadata, file/virtual/package mutation methods, defensive snapshots, last-successful-build preservation across failed compiles, and builder-side reuse of unchanged transformed module outputs;
+- `npm run test:session-cache` records local workerd/Vitest timing signals comparing cold `compileDynamicWorker()` with session initial compiles, cached leaf updates, graph updates, and package snapshot updates for generated module graphs;
 - caller-provided virtual bare modules (`string` shorthand, `{ js }`, `{ json }`, `{ text }`, `{ data }`, or `{ wasm }`) can satisfy imports such as `react/jsx-runtime`, including automatic JSX output from Oxc transform; JS virtual modules can import other virtual modules, and object modules are emitted as leaf Worker Loader modules;
 - actual React 19.2.7 / React DOM 19.2.7 CJS production package files can server-render through Worker Loader without bundling both as a manual `{ cjs }` control map and as resolver-produced output from an exact in-memory `packageFiles` snapshot; the constrained resolver selects the `workerd` server export and rewrites literal `require("react")` / `require("react-dom")` calls to explicit Worker Loader module specifiers;
 - 10-module and 50-module local graph stress cases compile successfully in workerd, with timing output available from the stress test;
-- `npm run test:operational` records local workerd/Vitest timing signals for SWC source transforms, SWC transform-from-AST, parse-error recovery, and the current Oxc compile stress path; these are not production benchmarks;
+- `npm run test:operational` records local workerd/Vitest timing signals for SWC source transforms, SWC transform-from-AST, parse-error recovery, the current Oxc compile stress path, and cached session compiles; these are not production benchmarks;
 - `npm run test:bundle-shape` runs Wrangler dry-run builds for tiny Babel, SWC, Oxc check, Oxc AST, and Oxc transform fixture Workers and records Wrangler-reported upload/gzip sizes plus `wrangler check startup` alpha-command signals;
 - `npm run test:startup` runs the bundle/startup-shape checks plus Oxc-specific Workers timing probes for full AST materialization, repeated 10-module compiles, and parse-failure recovery;
 - `npm run test:risk` records raw/gzip artifact-size proxies, Wrangler dry-run bundle/startup-shape signals, and local workerd memory-observability signals; raw package artifact sizes and dry-run upload sizes are not production cold-start or RSS measurements, and local `process.memoryUsage()` currently reports zero-valued fields rather than meaningful RSS;

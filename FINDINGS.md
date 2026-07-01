@@ -290,6 +290,56 @@ Worker Loader constraints still matter: Dynamic Worker definitions are complete 
 
 Current limitation: local graph discovery is still rebuilt conservatively each compile. The next optimization step would cache graph scan results and invalidate dependents only when import/export specifiers change.
 
+### Session cache measurement signals
+
+`tests/workers/measurements/session-cache-measurements.test.ts` records local workerd/Vitest timing signals for the session cache. It compares cold `compileDynamicWorker()` runs with session initial compiles, cached leaf updates, entrypoint graph updates, and package snapshot updates. These are directional local signals, not production benchmarks.
+
+One local run on 2026-07-01 reported:
+
+```json
+{
+  "graphs": [
+    {
+      "moduleCount": 10,
+      "fullCompileMs": 293,
+      "sessionInitialMs": 41,
+      "sessionLeafUpdateMs": 26,
+      "sessionGraphUpdateMs": 20,
+      "leafUpdateVsFullRatio": 0.089,
+      "graphUpdateVsFullRatio": 0.068
+    },
+    {
+      "moduleCount": 50,
+      "fullCompileMs": 89,
+      "sessionInitialMs": 79,
+      "sessionLeafUpdateMs": 27,
+      "sessionGraphUpdateMs": 42,
+      "leafUpdateVsFullRatio": 0.303,
+      "graphUpdateVsFullRatio": 0.472
+    }
+  ],
+  "packageSnapshot": {
+    "initialMs": 2,
+    "unchangedPackageMs": 1,
+    "packageUpdateMs": 1,
+    "packageUpdateCache": {
+      "transformedModules": [],
+      "reusedModules": ["src/index.js"],
+      "droppedModules": [],
+      "graphRebuilt": true,
+      "packageGraphRebuilt": true
+    }
+  }
+}
+```
+
+Interpretation caveats:
+
+- The 10-module cold full compile includes first observed parser/transform initialization in this test isolate, so it is not directly comparable to later warm 50-module measurements.
+- The test asserts correctness and cache metadata, but it intentionally does not enforce timing ratios because local workerd/Vitest timing is noisy.
+- Leaf updates reuse unchanged transformed modules while still rebuilding local graph discovery and emitting complete Worker Loader module maps.
+- Package snapshot updates reuse local transformed modules and rebuild only the package graph.
+
 Evidence:
 
 - `tests/workers/oxc/incremental-session.test.ts`
@@ -300,6 +350,9 @@ Evidence:
   - proves virtual module and package file edits affect output and metadata;
   - proves delete/reset/no-op behavior and defensive copies;
   - proves cache metadata for transformed, reused, and dropped modules during leaf edits, graph changes, and package snapshot edits.
+- `tests/workers/measurements/session-cache-measurements.test.ts`
+  - records 10/50 module timing comparisons for cold full compile, session initial compile, cached leaf update, and entrypoint graph update;
+  - records package snapshot update timing and confirms local module reuse plus package graph rebuild metadata.
 
 ## Oxc full AST access in workerd
 
