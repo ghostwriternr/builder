@@ -41,6 +41,7 @@ Current passing evidence:
   - Actual React 19.2.7 / React DOM 19.2.7 production CJS files can server-render through Worker Loader without bundling both as a manual `{ cjs }` module map and as resolver-produced output from an exact `packageFiles` snapshot. The resolver selects the `react-dom/server` `workerd` export, emits package modules under `node_modules`-style keys, and rewrites bare CJS `require("react")` / `require("react-dom")` specifiers to explicit Worker Loader module paths.
   - A 50-module local relative graph compiles and loads through Worker Loader in the stress test.
   - failed builds cannot be converted into Worker Loader definitions.
+  - Worker Loader error-surface controls show that syntax errors, missing module imports, top-level throws, and invalid CJS main modules surface when a request is delivered to the stub (`fetch()` in these tests), not at `LOADER.get()` or `getEntrypoint()`. Current local workerd/Vitest startup messages include generated module context, but this package does not yet expose runtime-error mapping.
   - Vite / rolldown-vite / Oxlint / Oxfmt are explicitly classified as non-runtime-builder paths for this objective.
 
 ## Full AST paths in workerd
@@ -422,6 +423,19 @@ Guidance for full TSX AST consumers:
 - If a consumer needs full TSX AST traversal inside workerd today, Oxc is viable via the internal materializer.
 - Babel remains the lowest-footprint AST path; Oxc is attractive when AST shape consistency with the Oxc transform/compiler path matters.
 - No upstream issue is needed for the basic `program === ""` symptom when it occurs after a first direct raw getter read; that is expected low-level binding behavior. If a wrapped `oxc-parser/src-js/wasm.js` result returns empty on first access in a browser/WASI setup, that would be a separate upstream-worthy issue.
+
+## Worker Loader error surface
+
+`tests/workers/worker-loader-error-surface.test.ts` captures the current local workerd/Vitest error surface for representative Dynamic Worker startup failures:
+
+- Syntax errors in JS modules throw during `entrypoint.fetch()` and the observed message includes `SyntaxError` plus generated module context such as `index.js`.
+- Missing imports throw during `entrypoint.fetch()` and the observed message includes both the missing module key (`missing.js`) and importer module key (`index.js`).
+- Top-level module throws also surface during `entrypoint.fetch()` and the observed message preserves the thrown semantic marker (`top-level boom`) plus generated module context.
+- CJS modules can be imported as dependencies, but Worker Loader rejects a CJS `mainModule`; the observed message identifies an ES module requirement.
+
+A throwaway probe also showed fetch-time throws from a successfully started dynamic Worker surface as the thrown error message without a startup wrapper, but that case emits an `uncaught exception` line in local Vitest/workerd output even when the rejection is caught. It is therefore not part of the default checked-in suite.
+
+Interpretation: current local controls show Worker Loader startup errors can contain generated module names and sometimes generated line/column locations, but this is observed evidence rather than a documented formatting contract. There is not yet a public runtime-error mapping layer in this package. Mapping startup/runtime failures back to original TS/TSX would require preserving source-map metadata alongside loaded builds and parsing Worker Loader error messages carefully; that remains future work.
 
 ## Worker Loader object modules
 

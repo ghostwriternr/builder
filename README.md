@@ -232,6 +232,7 @@ The tests prove:
 - missing local imports, unsupported dynamic imports, and unsupported bare imports return structured diagnostics with source locations where the builder has parser offsets; post-transform diagnostics use Oxc source maps only when the generated position is actually mapped, and otherwise fall back to generated module locations;
 - Oxc runtime failures are structured diagnostics, not crashes; Rolldown blocked-runtime behavior remains covered as experiment evidence rather than the active compile path;
 - failed compiler output cannot be accidentally passed to Worker Loader or hashed into a Dynamic Worker build ID;
+- Worker Loader error-surface controls show that syntax errors, missing imports, top-level throws, and invalid CJS main modules surface when the stub receives `fetch()`, not at `LOADER.get()`; current local workerd/Vitest startup messages include generated module context, but this package does not yet expose runtime-error mapping;
 - Vite, rolldown-vite, Oxlint, and Oxfmt are classified as development/build/CLI tooling rather than workerd runtime builder APIs.
 
 ## Current result
