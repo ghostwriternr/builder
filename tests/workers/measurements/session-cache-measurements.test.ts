@@ -35,6 +35,8 @@ describe("cached Oxc build-session measurements", () => {
         reusedModules: [],
         droppedModules: [],
         graphRebuilt: true,
+        graphScannedModules: Array.from({ length: moduleCount + 1 }, (_, index) => index === 0 ? "src/index.tsx" : `src/module-${index - 1}.tsx`).sort(),
+        graphReusedModules: [],
         packageGraphRebuilt: false,
       });
 
@@ -47,6 +49,8 @@ describe("cached Oxc build-session measurements", () => {
         reusedModules: Array.from({ length: moduleCount }, (_, index) => index === 0 ? "src/index.js" : `src/module-${index - 1}.js`).sort(),
         droppedModules: [],
         graphRebuilt: true,
+        graphScannedModules: [`src/module-${moduleCount - 1}.tsx`],
+        graphReusedModules: Array.from({ length: moduleCount }, (_, index) => index === 0 ? "src/index.tsx" : `src/module-${index - 1}.tsx`).sort(),
         packageGraphRebuilt: false,
       });
 
@@ -57,6 +61,8 @@ describe("cached Oxc build-session measurements", () => {
       expect(Object.keys(graphUpdate.value.modules)).toHaveLength(moduleCount + 2);
       expect(graphUpdate.value.session.cache?.transformedModules.sort()).toEqual(["src/extra.js", "src/index.js"]);
       expect(graphUpdate.value.session.cache?.reusedModules).toHaveLength(moduleCount);
+      expect(graphUpdate.value.session.cache?.graphScannedModules.sort()).toEqual(["src/extra.tsx", "src/index.tsx"]);
+      expect(graphUpdate.value.session.cache?.graphReusedModules).toHaveLength(moduleCount);
 
       summaries.push(summarizeSessionMeasurements(moduleCount, full, initial, leafUpdate, graphUpdate));
     }
@@ -83,6 +89,8 @@ describe("cached Oxc build-session measurements", () => {
       reusedModules: [],
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: ["src/index.tsx"],
+      graphReusedModules: [],
       packageGraphRebuilt: false,
     });
 
@@ -94,6 +102,8 @@ describe("cached Oxc build-session measurements", () => {
       reusedModules: ["src/index.js"],
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: [],
+      graphReusedModules: ["src/index.tsx"],
       packageGraphRebuilt: true,
     });
 

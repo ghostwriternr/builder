@@ -1,5 +1,5 @@
 import { diagnostic, evidence, isProbablyWorkerd } from "../diagnostics";
-import { buildLocalModuleGraph } from "./module-graph";
+import { buildLocalModuleGraph, type ModuleSpecifier } from "./module-graph";
 import { buildPackageModuleGraph } from "./package-resolver";
 import {
   getOxcParserForRuntime,
@@ -8,8 +8,7 @@ import {
   normalizeVirtualModulesForOxc,
   processModuleSpecifiersWithOxc,
   scanModuleSpecifiersWithOxc,
-  transformOptionsForOxc,
-  type NormalizedVirtualModule
+  transformOptionsForOxc
 } from "./transform";
 import type {
   DynamicWorkerBuildSession,
@@ -43,9 +42,15 @@ interface PackageGraphCacheEntry {
   modules: Record<string, DynamicWorkerModuleContent>;
 }
 
+interface GraphScanCacheEntry {
+  cacheKey: string;
+  specifiers: ModuleSpecifier[];
+}
+
 interface CompileCacheState {
   localModules: Map<string, LocalModuleCacheEntry>;
   virtualModules: Map<string, VirtualModuleCacheEntry>;
+  graphScans: Map<string, GraphScanCacheEntry>;
   packageGraph?: PackageGraphCacheEntry;
   outputPaths: Set<string>;
 }
@@ -199,6 +204,8 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
   const events: ToolchainEvidence[] = [];
   const transformedModules = new Set<string>();
   const reusedModules = new Set<string>();
+  const graphScannedModules = new Set<string>();
+  const graphReusedModules = new Set<string>();
   let packageGraphRebuilt = false;
 
   const parserImportStart = performance.now();
@@ -209,7 +216,7 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
   } catch (error) {
     events.push(evidence("oxc-parser", "import", false, parserImportStart));
     diagnostics.push(diagnostic("oxc-parser", "import-failed", "Could not initialize Oxc parser for session graph discovery.", error));
-    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
 
   const transformerImportStart = performance.now();
@@ -220,38 +227,55 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
   } catch (error) {
     events.push(evidence("oxc-transform", "import", false, transformerImportStart));
     diagnostics.push(diagnostic("oxc-transform", "import-failed", "Could not initialize Oxc transform for session compile.", error));
-    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
 
   const normalizedVirtualModules = normalizeVirtualModulesForOxc(input.virtualModules ?? {});
   if (normalizedVirtualModules.diagnostics.length > 0) {
     diagnostics.push(...normalizedVirtualModules.diagnostics);
-    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
   const virtualModules = normalizedVirtualModules.modules;
   const normalizedPackageFiles = input.packageFiles ? normalizePackageFilesForOxc(input.packageFiles) : undefined;
   const graphInput = normalizedPackageFiles ? { ...input, packageFiles: normalizedPackageFiles } : input;
+  const virtualResolutionKey = JSON.stringify(Object.entries(virtualModules).map(([name, module]) => [name, module.outputPath]).sort());
+  const packageResolutionKey = JSON.stringify(Object.entries(normalizedPackageFiles ?? {}).filter(([path]) => path.endsWith("/package.json")).sort());
+  const jsxKey = JSON.stringify(input.jsx ?? {});
+  const localContextKey = JSON.stringify({ jsxKey, virtualResolutionKey, packageResolutionKey });
+  const graphScanContextKey = JSON.stringify({ virtualResolutionKey, packageResolutionKey });
+  const nextGraphScans = new Map<string, GraphScanCacheEntry>();
+  const scanForLocalGraph = (filename: string, source: string): ModuleSpecifier[] => {
+    const cacheKey = JSON.stringify({ filename, sourceHash: stableHash(source), graphScanContextKey });
+    const cached = previousCache.graphScans.get(filename);
+    if (cached?.cacheKey === cacheKey) {
+      graphReusedModules.add(filename);
+      nextGraphScans.set(filename, cloneGraphScanCacheEntry(cached));
+      return cloneModuleSpecifiers(cached.specifiers);
+    }
+
+    const specifiers = scanModuleSpecifiersWithOxc(parser, filename, source);
+    graphScannedModules.add(filename);
+    nextGraphScans.set(filename, { cacheKey, specifiers: cloneModuleSpecifiers(specifiers) });
+    return cloneModuleSpecifiers(specifiers);
+  };
 
   const graphStart = performance.now();
-  const graph = await buildLocalModuleGraph(graphInput, (filename, source) => scanModuleSpecifiersWithOxc(parser, filename, source));
+  const graph = await buildLocalModuleGraph(graphInput, scanForLocalGraph);
   events.push(evidence("oxc-transform", "bundle", graph.ok, graphStart, graph.ok ? `${graph.modules?.length ?? 0} local modules resolved from Oxc parser metadata` : "local module graph resolution failed"));
   if (!graph.ok || graph.mainModule === undefined || graph.modules === undefined) {
     diagnostics.push(...graph.diagnostics);
-    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
 
   const nextCache: CompileCacheState = {
     localModules: new Map(),
     virtualModules: new Map(),
+    graphScans: nextGraphScans,
     packageGraph: previousCache.packageGraph,
     outputPaths: new Set()
   };
   const modules: Record<string, DynamicWorkerModuleContent> = {};
   const packageImports = new Set(graph.packageImports);
-  const virtualResolutionKey = JSON.stringify(Object.entries(virtualModules).map(([name, module]) => [name, module.outputPath]).sort());
-  const packageResolutionKey = JSON.stringify(Object.entries(normalizedPackageFiles ?? {}).filter(([path]) => path.endsWith("/package.json")).sort());
-  const jsxKey = JSON.stringify(input.jsx ?? {});
-  const localContextKey = JSON.stringify({ jsxKey, virtualResolutionKey, packageResolutionKey });
   const transformStart = performance.now();
 
   try {
@@ -278,14 +302,14 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
       if (!code || errors.length > 0) {
         events.push(evidence("oxc-transform", "transform", false, transformStart, `${errors.length} transform errors in ${module.inputPath}`));
         diagnostics.push(diagnostic("oxc-transform", "transform-failed", `Oxc transform did not produce JavaScript for ${module.inputPath}.`, errors));
-        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
       }
 
       const processed = processModuleSpecifiersWithOxc(parser, module.outputPath, code, virtualModules, normalizedPackageFiles);
       if (!processed.ok) {
         events.push(evidence("oxc-transform", "transform", false, transformStart, `post-transform import validation failed in ${module.outputPath}`));
         diagnostics.push(...processed.diagnostics);
-        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
       }
 
       for (const packageImport of processed.packageImports) packageImports.add(packageImport);
@@ -322,7 +346,7 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
       if (!processed.ok) {
         events.push(evidence("oxc-transform", "transform", false, transformStart, `virtual module import validation failed in ${virtualModule.outputPath}`));
         diagnostics.push(...processed.diagnostics);
-        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+        return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
       }
       for (const packageImport of processed.packageImports) packageImports.add(packageImport);
       const content = { js: processed.code };
@@ -345,7 +369,7 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         const collision = Object.keys(cachedPackageGraph.modules).find((key) => modules[key] !== undefined);
         if (collision !== undefined) {
           diagnostics.push(diagnostic("internal", "transform-failed", `Package module collision would overwrite existing module output: ${collision}`));
-          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
         }
         Object.assign(modules, cloneModuleMap(cachedPackageGraph.modules));
         nextCache.packageGraph = clonePackageGraphCacheEntry(cachedPackageGraph);
@@ -358,12 +382,12 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         );
         if (!packageGraph.ok) {
           diagnostics.push(...packageGraph.diagnostics);
-          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
         }
         const collision = Object.keys(packageGraph.modules).find((key) => modules[key] !== undefined);
         if (collision !== undefined) {
           diagnostics.push(diagnostic("internal", "transform-failed", `Package module collision would overwrite existing module output: ${collision}`));
-          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+          return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
         }
         Object.assign(modules, cloneModuleMap(packageGraph.modules));
         nextCache.packageGraph = { cacheKey: packageCacheKey, modules: cloneModuleMap(packageGraph.modules) };
@@ -391,13 +415,15 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         reusedModules: sorted(reusedModules),
         droppedModules,
         graphRebuilt: true,
+        graphScannedModules: sorted(graphScannedModules),
+        graphReusedModules: sorted(graphReusedModules),
         packageGraphRebuilt
       }
     };
   } catch (error) {
     events.push(evidence("oxc-transform", "transform", false, transformStart));
     diagnostics.push(diagnostic("oxc-transform", "transform-failed", "Oxc transform imported but failed during cached session compile.", error));
-    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, packageGraphRebuilt);
+    return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
 }
 
@@ -407,6 +433,8 @@ function failedCompile(
   previousCache: CompileCacheState,
   transformedModules: Set<string>,
   reusedModules: Set<string>,
+  graphScannedModules: Set<string>,
+  graphReusedModules: Set<string>,
   packageGraphRebuilt: boolean,
 ): { output: ReactWorkerBuildOutput; cache: CompileCacheState; cacheMetadata: DynamicWorkerBuildSessionCacheMetadata } {
   return {
@@ -422,6 +450,8 @@ function failedCompile(
       reusedModules: sorted(reusedModules),
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: sorted(graphScannedModules),
+      graphReusedModules: sorted(graphReusedModules),
       packageGraphRebuilt
     }
   };
@@ -431,6 +461,7 @@ function emptyCacheState(): CompileCacheState {
   return {
     localModules: new Map(),
     virtualModules: new Map(),
+    graphScans: new Map(),
     outputPaths: new Set()
   };
 }
@@ -487,6 +518,14 @@ function cloneVirtualCacheEntry(entry: VirtualModuleCacheEntry): VirtualModuleCa
 
 function clonePackageGraphCacheEntry(entry: PackageGraphCacheEntry): PackageGraphCacheEntry {
   return { cacheKey: entry.cacheKey, modules: cloneModuleMap(entry.modules) };
+}
+
+function cloneGraphScanCacheEntry(entry: GraphScanCacheEntry): GraphScanCacheEntry {
+  return { cacheKey: entry.cacheKey, specifiers: cloneModuleSpecifiers(entry.specifiers) };
+}
+
+function cloneModuleSpecifiers(specifiers: ModuleSpecifier[]): ModuleSpecifier[] {
+  return specifiers.map((specifier) => ({ ...specifier }));
 }
 
 function cloneModuleMap(modules: Record<string, DynamicWorkerModuleContent>): Record<string, DynamicWorkerModuleContent> {
@@ -559,6 +598,15 @@ function sorted(values: Set<string>): string[] {
 
 function sortedDifference(previous: Set<string>, next: Set<string>): string[] {
   return Array.from(previous).filter((value) => !next.has(value)).sort();
+}
+
+function stableHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function collectArrayLike(value: unknown): unknown[] {

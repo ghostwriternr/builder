@@ -91,6 +91,8 @@ export interface DynamicWorkerBuildSessionCacheMetadata {
   reusedModules: string[];
   droppedModules: string[];
   graphRebuilt: boolean;
+  graphScannedModules: string[];
+  graphReusedModules: string[];
   packageGraphRebuilt: boolean;
 }
 

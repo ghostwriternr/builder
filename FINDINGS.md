@@ -278,17 +278,18 @@ The session API now proves workflow semantics and a first builder-side transform
 
 - sessions track a monotonically increasing `revision`;
 - `compile()` returns the normal `ReactWorkerBuildOutput` fields plus session metadata for changed/deleted first-party files, virtual modules, and package snapshot files;
-- `compile().session.cache` reports `transformedModules`, `reusedModules`, `droppedModules`, `graphRebuilt`, and `packageGraphRebuilt`;
+- `compile().session.cache` reports `transformedModules`, `reusedModules`, `droppedModules`, `graphRebuilt`, `graphScannedModules`, `graphReusedModules`, and `packageGraphRebuilt`;
 - `updateFile()`, `deleteFile()`, `setVirtualModule()`, `deleteVirtualModule()`, `setPackageFile()`, and `deletePackageFile()` mutate a defensive session-owned input copy;
 - unchanged transformed local module and virtual JS module outputs are reused when rewritten source, JSX settings, and resolution context are unchanged;
+- unchanged local graph specifier scans are reused when the source and resolution context are unchanged;
 - package graph output is reused when the package import list and package snapshot are unchanged;
 - failed compiles return current diagnostics without replacing `getLastSuccessfulBuild()` or the last successful cache;
 - recovery after failure updates the last-successful build and revision;
 - `snapshotInput()` and `getLastSuccessfulBuild()` return defensive copies so callers cannot mutate session internals accidentally.
 
-Worker Loader constraints still matter: Dynamic Worker definitions are complete `mainModule + modules` maps, and workerd compiles/parses all modules for a newly loaded isolate. Worker Loader caches by ID, and docs require a new ID when code changes. Therefore this cache reduces builder compile latency and repeated Oxc transform work; it does not implement Worker Loader partial updates or eliminate Dynamic Worker startup compilation for a new ID/code pair. To respect the 128 MB isolate memory limit, the session cache stores rewritten source keys and transformed module outputs, not full materialized ASTs by default.
+Worker Loader constraints still matter: Dynamic Worker definitions are complete `mainModule + modules` maps, and workerd compiles/parses all modules for a newly loaded isolate. Worker Loader caches by ID, and docs require a new ID when code changes. Therefore this cache reduces builder compile latency and repeated Oxc parse/transform work; it does not implement Worker Loader partial updates or eliminate Dynamic Worker startup compilation for a new ID/code pair. To respect the 128 MB isolate memory limit, the session cache stores module specifier metadata, rewritten source keys, and transformed module outputs, not full materialized ASTs by default.
 
-Current limitation: local graph discovery is still rebuilt conservatively each compile. The next optimization step would cache graph scan results and invalidate dependents only when import/export specifiers change.
+Current limitation: reachability is still recomputed conservatively each compile. The next optimization step would invalidate dependents only when import/export specifiers change and possibly avoid walking known-unaffected subgraphs.
 
 ### Session cache measurement signals
 
@@ -301,32 +302,44 @@ One local run on 2026-07-01 reported:
   "graphs": [
     {
       "moduleCount": 10,
-      "fullCompileMs": 293,
-      "sessionInitialMs": 41,
-      "sessionLeafUpdateMs": 26,
-      "sessionGraphUpdateMs": 20,
-      "leafUpdateVsFullRatio": 0.089,
-      "graphUpdateVsFullRatio": 0.068
+      "fullCompileMs": 282,
+      "sessionInitialMs": 36,
+      "sessionLeafUpdateMs": 5,
+      "sessionGraphUpdateMs": 24,
+      "leafUpdateVsFullRatio": 0.018,
+      "graphUpdateVsFullRatio": 0.085,
+      "initialGraphScanned": 11,
+      "leafGraphScanned": ["src/module-9.tsx"],
+      "leafGraphReusedCount": 10,
+      "graphUpdateGraphScanned": ["src/extra.tsx", "src/index.tsx"],
+      "graphUpdateGraphReusedCount": 10
     },
     {
       "moduleCount": 50,
-      "fullCompileMs": 89,
-      "sessionInitialMs": 79,
-      "sessionLeafUpdateMs": 27,
-      "sessionGraphUpdateMs": 42,
-      "leafUpdateVsFullRatio": 0.303,
-      "graphUpdateVsFullRatio": 0.472
+      "fullCompileMs": 86,
+      "sessionInitialMs": 74,
+      "sessionLeafUpdateMs": 2,
+      "sessionGraphUpdateMs": 24,
+      "leafUpdateVsFullRatio": 0.023,
+      "graphUpdateVsFullRatio": 0.279,
+      "initialGraphScanned": 51,
+      "leafGraphScanned": ["src/module-49.tsx"],
+      "leafGraphReusedCount": 50,
+      "graphUpdateGraphScanned": ["src/extra.tsx", "src/index.tsx"],
+      "graphUpdateGraphReusedCount": 50
     }
   ],
   "packageSnapshot": {
-    "initialMs": 2,
-    "unchangedPackageMs": 1,
+    "initialMs": 1,
+    "unchangedPackageMs": 2,
     "packageUpdateMs": 1,
     "packageUpdateCache": {
       "transformedModules": [],
       "reusedModules": ["src/index.js"],
       "droppedModules": [],
       "graphRebuilt": true,
+      "graphScannedModules": [],
+      "graphReusedModules": ["src/index.tsx"],
       "packageGraphRebuilt": true
     }
   }
@@ -337,7 +350,7 @@ Interpretation caveats:
 
 - The 10-module cold full compile includes first observed parser/transform initialization in this test isolate, so it is not directly comparable to later warm 50-module measurements.
 - The test asserts correctness and cache metadata, but it intentionally does not enforce timing ratios because local workerd/Vitest timing is noisy.
-- Leaf updates reuse unchanged transformed modules while still rebuilding local graph discovery and emitting complete Worker Loader module maps.
+- Leaf updates reuse unchanged transformed modules and unchanged graph specifier scans while still recomputing reachability and emitting complete Worker Loader module maps.
 - Package snapshot updates reuse local transformed modules and rebuild only the package graph.
 
 Evidence:
@@ -349,10 +362,11 @@ Evidence:
   - proves recovery updates last-successful state;
   - proves virtual module and package file edits affect output and metadata;
   - proves delete/reset/no-op behavior and defensive copies;
-  - proves cache metadata for transformed, reused, and dropped modules during leaf edits, graph changes, and package snapshot edits.
+  - proves cache metadata for transformed, reused, dropped, graph-scanned, and graph-reused modules during leaf edits, graph changes, failure recovery, and package snapshot edits.
 - `tests/workers/measurements/session-cache-measurements.test.ts`
   - records 10/50 module timing comparisons for cold full compile, session initial compile, cached leaf update, and entrypoint graph update;
-  - records package snapshot update timing and confirms local module reuse plus package graph rebuild metadata.
+  - records graph scanned/reused counts for leaf and graph updates;
+  - records package snapshot update timing and confirms local module reuse plus graph scan reuse and package graph rebuild metadata.
 
 ## Oxc full AST access in workerd
 

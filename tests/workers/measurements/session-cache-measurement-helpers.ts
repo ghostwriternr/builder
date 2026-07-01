@@ -69,6 +69,10 @@ export function summarizeSessionMeasurements(
   leafUpdate: TimedValue<unknown>,
   graphUpdate: TimedValue<unknown>,
 ): Record<string, unknown> {
+  const initialCache = sessionCache(initial.value);
+  const leafCache = sessionCache(leafUpdate.value);
+  const graphCache = sessionCache(graphUpdate.value);
+
   return {
     moduleCount,
     fullCompileMs: full.durationMs,
@@ -77,7 +81,16 @@ export function summarizeSessionMeasurements(
     sessionGraphUpdateMs: graphUpdate.durationMs,
     leafUpdateVsFullRatio: ratio(leafUpdate.durationMs, full.durationMs),
     graphUpdateVsFullRatio: ratio(graphUpdate.durationMs, full.durationMs),
+    initialGraphScanned: initialCache?.graphScannedModules?.length,
+    leafGraphScanned: leafCache?.graphScannedModules,
+    leafGraphReusedCount: leafCache?.graphReusedModules?.length,
+    graphUpdateGraphScanned: graphCache?.graphScannedModules,
+    graphUpdateGraphReusedCount: graphCache?.graphReusedModules?.length,
   };
+}
+
+function sessionCache(value: unknown): { graphScannedModules?: string[]; graphReusedModules?: string[] } | undefined {
+  return (value as { session?: { cache?: { graphScannedModules?: string[]; graphReusedModules?: string[] } } }).session?.cache;
 }
 
 function entrypointForModules(moduleCount: number): string {

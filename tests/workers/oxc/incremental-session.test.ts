@@ -61,6 +61,8 @@ describe("experimental Oxc build session", () => {
         reusedModules: [],
         droppedModules: [],
         graphRebuilt: true,
+        graphScannedModules: ["src/index.tsx"],
+        graphReusedModules: [],
         packageGraphRebuilt: false,
       },
     });
@@ -77,6 +79,8 @@ describe("experimental Oxc build session", () => {
       reusedModules: [],
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: ["src/index.tsx", "src/message.tsx"],
+      graphReusedModules: [],
       packageGraphRebuilt: false,
     });
 
@@ -94,6 +98,8 @@ describe("experimental Oxc build session", () => {
       reusedModules: ["src/index.js"],
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: ["src/message.tsx"],
+      graphReusedModules: ["src/index.tsx"],
       packageGraphRebuilt: false,
     });
     expect(second.session.lastSuccessfulRevision).toBe(1);
@@ -119,12 +125,14 @@ describe("experimental Oxc build session", () => {
       reusedModules: [],
       droppedModules: ["src/message.js"],
       graphRebuilt: true,
+      graphScannedModules: ["src/index.tsx", "src/other.tsx"],
+      graphReusedModules: [],
       packageGraphRebuilt: false,
     });
     expect(third.session.lastSuccessfulRevision).toBe(2);
   });
 
-  test("preserves the last successful build and cache across failure and recovery", async () => {
+  test("preserves the last successful build and cache across graph-resolution failure and recovery", async () => {
     const session = experimentalCreateDynamicWorkerBuildSession(twoModuleInput("good"));
 
     const good = await session.compile();
@@ -138,6 +146,8 @@ describe("experimental Oxc build session", () => {
     expect(failed.ok).toBe(false);
     expect(failed.session.changedFiles).toEqual(["src/index.tsx", "src/message.tsx"]);
     expect(failed.session.cache?.transformedModules).toEqual([]);
+    expect(failed.session.cache?.graphScannedModules).toEqual(["src/index.tsx", "src/message.tsx"]);
+    expect(failed.session.cache?.graphReusedModules).toEqual([]);
     expect(failed.session.lastSuccessfulRevision).toBe(0);
     expect(session.getLastSuccessfulBuild()?.modules?.["src/message.js"]).toContain("good");
 
@@ -150,10 +160,53 @@ describe("experimental Oxc build session", () => {
       reusedModules: [],
       droppedModules: [],
       graphRebuilt: true,
+      graphScannedModules: ["src/index.tsx", "src/message.tsx"],
+      graphReusedModules: [],
       packageGraphRebuilt: false,
     });
     expect(recovered.session.lastSuccessfulRevision).toBe(3);
     expect(session.getLastSuccessfulBuild()?.modules?.["src/message.js"]).toContain("failed edit");
+  });
+
+  test("does not promote graph scans from failures after graph discovery", async () => {
+    const session = experimentalCreateDynamicWorkerBuildSession({
+      entrypoint: "src/index.tsx",
+      files: {
+        "src/index.tsx": `
+          import { message } from "./message";
+          import { label } from "pkg";
+          export default { async fetch() { return new Response(message + label) } }
+        `,
+        "src/message.tsx": `export const message = "good";`,
+      },
+      packageFiles: {
+        "node_modules/pkg/package.json": JSON.stringify({ name: "pkg", exports: "./index.js" }),
+        "node_modules/pkg/index.js": `export const label = "pkg";`,
+      },
+    });
+
+    const good = await session.compile();
+    expect(good.ok).toBe(true);
+
+    session.updateFile("src/message.tsx", `export const message = "changed before failed package";`);
+    session.setPackageFile("node_modules/pkg/index.js", `const name = "pkg"; module.exports = require(name);`);
+    const failed = await session.compile();
+    expect(failed.ok).toBe(false);
+    expect(failed.session.cache?.graphScannedModules).toEqual(["src/message.tsx"]);
+    expect(failed.session.cache?.graphReusedModules).toEqual(["src/index.tsx"]);
+    expect(session.getLastSuccessfulBuild()?.modules?.["src/message.js"]).toContain("good");
+
+    session.setPackageFile("node_modules/pkg/index.js", `export const label = "fixed";`);
+    const recovered = await session.compile();
+    expect(recovered.ok).toBe(true);
+    expect(recovered.modules?.["src/message.js"]).toContain("changed before failed package");
+    expect(recovered.session.cache).toMatchObject({
+      transformedModules: ["src/message.js"],
+      reusedModules: ["src/index.js"],
+      graphScannedModules: ["src/message.tsx"],
+      graphReusedModules: ["src/index.tsx"],
+      packageGraphRebuilt: true,
+    });
   });
 
   test("tracks virtual module edits and reuses unchanged virtual JS modules", async () => {
