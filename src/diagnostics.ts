@@ -1,6 +1,10 @@
 import type { OxcDiagnostic, OxcSourceLocation, OxcSourceSpan } from "./types.ts";
 
-export function runtimeDiagnostic(phase: "parse" | "transform" | "runtime", message: string, cause?: unknown): OxcDiagnostic {
+export function runtimeDiagnostic(
+  phase: "parse" | "transform" | "runtime",
+  message: string,
+  cause?: unknown,
+): OxcDiagnostic {
   return {
     phase,
     severity: "error",

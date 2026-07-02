@@ -81,14 +81,14 @@ interface ParseInput {
   filename: string;
   source: string;
   lang?: "js" | "jsx" | "ts" | "tsx"; // default: inferred from filename
-  sourceType?: "module" | "script";  // default: "module"
-  astType?: "js" | "ts";             // default: "ts" for .ts/.tsx/.mts/.cts
-  range?: boolean;                   // include byte ranges (default: false)
-  preserveParens?: boolean;          // default: false
+  sourceType?: "module" | "script"; // default: "module"
+  astType?: "js" | "ts"; // default: "ts" for .ts/.tsx/.mts/.cts
+  range?: boolean; // include byte ranges (default: false)
+  preserveParens?: boolean; // default: false
 }
 
 interface ParseOutput {
-  ast: OxcProgramAst;   // { type: "Program", body: [...], ... }
+  ast: OxcProgramAst; // { type: "Program", body: [...], ... }
   rawProgramLength: number;
 }
 ```
@@ -106,14 +106,16 @@ interface TransformInput {
   filename: string;
   source: string;
   lang?: "js" | "jsx" | "ts" | "tsx"; // default: inferred from filename
-  sourceType?: "module" | "script";  // default: "module"
-  target?: string;                    // e.g. "es2022" (default: "es2022")
-  sourcemap?: boolean;                // default: false
-  jsx?: "preserve" | {
-    runtime?: "automatic" | "classic"; // default: "automatic"
-    importSource?: string;             // default: "react"
-    development?: boolean;             // default: false
-  };
+  sourceType?: "module" | "script"; // default: "module"
+  target?: string; // e.g. "es2022" (default: "es2022")
+  sourcemap?: boolean; // default: false
+  jsx?:
+    | "preserve"
+    | {
+        runtime?: "automatic" | "classic"; // default: "automatic"
+        importSource?: string; // default: "react"
+        development?: boolean; // default: false
+      };
 }
 
 interface TransformOutput {
@@ -209,11 +211,31 @@ This rebuilds `src/wasm/parser.wasm` and `src/wasm/transform.wasm`.
 
 ## Development
 
+The canonical check is:
+
 ```sh
-npm run typecheck
-npm test            # node + workerd suites
+npm run check
+```
+
+That runs Oxlint, Oxfmt, Rust formatting checks, TypeScript, node tests, and workerd tests.
+
+Useful commands:
+
+```sh
+npm run lint        # Oxlint
+npm run fmt:check   # Oxfmt + rustfmt check
+npm run fmt         # Oxfmt + rustfmt write
+npm test            # typecheck + node + workerd tests
 npm run test:node
 npm run test:workers
+```
+
+If you use [`just`](https://github.com/casey/just), the repo also has a thin command facade:
+
+```sh
+just check
+just fmt
+just build-wasm
 ```
 
 Worker tests run under

@@ -2,8 +2,8 @@
   "name": "workerd-oxc",
   "version": "0.0.0",
   "private": true,
-  "type": "module",
   "description": "Oxc parser and transform adapter for Cloudflare workerd using direct WebAssembly modules.",
+  "type": "module",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -11,20 +11,26 @@
     }
   },
   "scripts": {
-    "build:parser": "cargo build --locked --manifest-path native/parser/Cargo.toml --target wasm32-unknown-unknown --release && cp native/parser/target/wasm32-unknown-unknown/release/workerd_oxc_parser.wasm src/wasm/parser.wasm",
-    "build:transform": "cargo build --locked --manifest-path native/transform/Cargo.toml --target wasm32-unknown-unknown --release && cp native/transform/target/wasm32-unknown-unknown/release/workerd_oxc_transform.wasm src/wasm/transform.wasm",
-    "build:wasm": "npm run build:parser && npm run build:transform",
+    "build:wasm": "cargo build-wasm && cp target/wasm32-unknown-unknown/release/workerd_oxc_parser.wasm src/wasm/parser.wasm && cp target/wasm32-unknown-unknown/release/workerd_oxc_transform.wasm src/wasm/transform.wasm",
+    "check": "npm run lint && npm run fmt:check && npm test",
+    "fix": "npm run lint:fix && npm run fmt",
+    "fmt": "oxfmt --write . && cargo fmt --all",
+    "fmt:check": "oxfmt --check . && cargo fmt --all -- --check",
+    "lint": "oxlint --deny-warnings .",
+    "lint:fix": "oxlint --fix .",
     "test": "npm run typecheck && vitest run --config vitest.config.ts && vitest run --config vitest.workers.config.ts",
     "test:node": "vitest run --config vitest.config.ts",
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "latest",
-    "@cloudflare/workers-types": "latest",
-    "@types/node": "^26.0.1",
-    "typescript": "latest",
-    "vitest": "latest",
-    "wrangler": "latest"
+    "@cloudflare/vitest-pool-workers": "0.17.0",
+    "@cloudflare/workers-types": "4.20260702.1",
+    "@types/node": "26.1.0",
+    "oxfmt": "0.57.0",
+    "oxlint": "1.72.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.9",
+    "wrangler": "4.106.0"
   }
 }

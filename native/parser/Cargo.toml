@@ -7,13 +7,6 @@ publish = false
 [lib]
 crate-type = ["cdylib"]
 
-[profile.release]
-opt-level = "z"
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = "symbols"
-
 [dependencies]
 oxc_allocator = "0.138.0"
 oxc_ast = { version = "0.138.0", features = ["serialize"] }

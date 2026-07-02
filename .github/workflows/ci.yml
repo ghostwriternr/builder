@@ -25,6 +25,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@1.95.0
         with:
+          components: rustfmt
           targets: wasm32-unknown-unknown
 
       - name: Install dependencies
@@ -41,5 +42,5 @@ jobs:
             exit 1
           fi
 
-      - name: Test
-        run: npm test
+      - name: Check
+        run: npm run check

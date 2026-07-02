@@ -3,8 +3,8 @@ import { expect } from "vitest";
 import type { OxcDiagnostic, OxcResult } from "../../src/index";
 
 export function expectOk<T>(result: OxcResult<T>): T {
-  expect(result.ok, formatDiagnostics(result)).toBe(true);
   if (!result.ok) throw new Error(formatDiagnostics(result));
+  expect(result.ok).toBe(true);
   return result.value;
 }
 

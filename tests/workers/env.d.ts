@@ -9,7 +9,10 @@ interface LoadedWorker {
 }
 
 interface WorkerLoaderBinding {
-  get(id: string, factory: () => WorkerLoaderDefinition | Promise<WorkerLoaderDefinition>): LoadedWorker;
+  get(
+    id: string,
+    factory: () => WorkerLoaderDefinition | Promise<WorkerLoaderDefinition>,
+  ): LoadedWorker;
 }
 
 declare global {

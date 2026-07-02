@@ -19,11 +19,13 @@ describe("source maps", () => {
   });
 
   test("sourcemap output keeps original source identity", async () => {
-    const { map } = expectOk(await transform({
-      filename: "src/component.tsx",
-      source: SOURCE,
-      sourcemap: true,
-    }));
+    const { map } = expectOk(
+      await transform({
+        filename: "src/component.tsx",
+        source: SOURCE,
+        sourcemap: true,
+      }),
+    );
 
     expect(map).toMatchObject({
       version: 3,
@@ -35,11 +37,13 @@ describe("source maps", () => {
   });
 
   test("injected JSX runtime import is unmapped", async () => {
-    const { code, map } = expectOk(await transform({
-      filename: "src/component.tsx",
-      source: SOURCE,
-      sourcemap: true,
-    }));
+    const { code, map } = expectOk(
+      await transform({
+        filename: "src/component.tsx",
+        source: SOURCE,
+        sourcemap: true,
+      }),
+    );
 
     expect(map).toBeDefined();
     const generated = findGeneratedPosition(code, "react/jsx-runtime");
@@ -47,11 +51,13 @@ describe("source maps", () => {
   });
 
   test("generated function declaration maps to original function declaration", async () => {
-    const { code, map } = expectOk(await transform({
-      filename: "src/component.tsx",
-      source: SOURCE,
-      sourcemap: true,
-    }));
+    const { code, map } = expectOk(
+      await transform({
+        filename: "src/component.tsx",
+        source: SOURCE,
+        sourcemap: true,
+      }),
+    );
 
     expect(map).toBeDefined();
     const generated = findGeneratedPosition(code, "export function Component");
@@ -64,14 +70,19 @@ describe("source maps", () => {
   });
 
   test("generated JSX call maps to original JSX return", async () => {
-    const { code, map } = expectOk(await transform({
-      filename: "src/component.tsx",
-      source: SOURCE,
-      sourcemap: true,
-    }));
+    const { code, map } = expectOk(
+      await transform({
+        filename: "src/component.tsx",
+        source: SOURCE,
+        sourcemap: true,
+      }),
+    );
 
     expect(map).toBeDefined();
-    const generated = findGeneratedLinePosition(code, (line) => line.includes("_jsx") && line.includes("span"));
+    const generated = findGeneratedLinePosition(
+      code,
+      (line) => line.includes("_jsx") && line.includes("span"),
+    );
     const original = originalPositionFor(map!, generated);
 
     expect(original).toMatchObject({

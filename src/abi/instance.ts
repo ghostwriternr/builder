@@ -32,7 +32,10 @@ export interface TransformAbiExports extends OxcAbiExports {
   ) => number;
 }
 
-export function instantiateAbiModule<T extends OxcAbiExports>(module: WebAssembly.Module, label: string): T {
+export function instantiateAbiModule<T extends OxcAbiExports>(
+  module: WebAssembly.Module,
+  label: string,
+): T {
   const instance = new WebAssembly.Instance(module, {});
   const exports = instance.exports as T;
 

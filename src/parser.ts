@@ -1,7 +1,19 @@
 import parserModule from "./wasm/parser.wasm";
 
-import { sourceLocationAtOffset, sourceSpan, runtimeDiagnostic, stringifyCause } from "./diagnostics.ts";
-import type { OxcDiagnostic, OxcLanguage, OxcProgramAst, OxcResult, ParseInput, ParseOutput } from "./types.ts";
+import {
+  sourceLocationAtOffset,
+  sourceSpan,
+  runtimeDiagnostic,
+  stringifyCause,
+} from "./diagnostics.ts";
+import type {
+  OxcDiagnostic,
+  OxcLanguage,
+  OxcProgramAst,
+  OxcResult,
+  ParseInput,
+  ParseOutput,
+} from "./types.ts";
 import { instantiateAbiModule, type ParserAbiExports } from "./abi/instance.ts";
 import { AbiMemoryScope } from "./abi/memory.ts";
 import { readJsonResult } from "./abi/result.ts";
@@ -48,7 +60,10 @@ export function createParserRuntime(): ParserRuntime {
         } catch {
           // Preserve the original error in this call's diagnostic.
         }
-        return { ok: false, diagnostics: [runtimeDiagnostic("runtime", "Oxc parser runtime failed.", error)] };
+        return {
+          ok: false,
+          diagnostics: [runtimeDiagnostic("runtime", "Oxc parser runtime failed.", error)],
+        };
       }
     },
   };
@@ -63,7 +78,14 @@ function parseWithExports(exports: ParserAbiExports, input: ParseInput): OxcResu
     if (optionsJson === undefined) throw new Error("Oxc parser options must be JSON-serializable.");
     const options = scope.writeString(optionsJson);
 
-    const handle = exports.parse(filename.ptr, filename.len, source.ptr, source.len, options.ptr, options.len);
+    const handle = exports.parse(
+      filename.ptr,
+      filename.len,
+      source.ptr,
+      source.len,
+      options.ptr,
+      options.len,
+    );
     const payload = readJsonResult<DirectParsePayload>(exports, handle);
     return parsePayload(input, payload);
   } finally {
@@ -72,15 +94,26 @@ function parseWithExports(exports: ParserAbiExports, input: ParseInput): OxcResu
 }
 
 function parsePayload(input: ParseInput, payload: DirectParsePayload): OxcResult<ParseOutput> {
-  const rawProgramLength = typeof payload.rawProgramLength === "number" ? payload.rawProgramLength : 0;
-  const diagnostics = collectArrayLike(payload.diagnostics).map((diagnostic) => normalizeDiagnostic(input, diagnostic));
+  const rawProgramLength =
+    typeof payload.rawProgramLength === "number" ? payload.rawProgramLength : 0;
+  const diagnostics = collectArrayLike(payload.diagnostics).map((diagnostic) =>
+    normalizeDiagnostic(input, diagnostic),
+  );
 
   if (payload.ok !== true) {
     return {
       ok: false,
-      diagnostics: diagnostics.length > 0
-        ? diagnostics
-        : [{ phase: "parse", severity: "error", message: "Oxc parser failed without structured diagnostics.", filename: input.filename }],
+      diagnostics:
+        diagnostics.length > 0
+          ? diagnostics
+          : [
+              {
+                phase: "parse",
+                severity: "error",
+                message: "Oxc parser failed without structured diagnostics.",
+                filename: input.filename,
+              },
+            ],
     };
   }
 
@@ -88,7 +121,14 @@ function parsePayload(input: ParseInput, payload: DirectParsePayload): OxcResult
   if (!isProgramAst(ast)) {
     return {
       ok: false,
-      diagnostics: [{ phase: "parse", severity: "error", message: "Oxc parser payload did not materialize to a Program AST.", filename: input.filename }],
+      diagnostics: [
+        {
+          phase: "parse",
+          severity: "error",
+          message: "Oxc parser payload did not materialize to a Program AST.",
+          filename: input.filename,
+        },
+      ],
     };
   }
 
@@ -107,16 +147,22 @@ function parseOptions(input: ParseInput): Record<string, unknown> {
 
 function normalizeDiagnostic(input: ParseInput, value: unknown): OxcDiagnostic {
   const direct = value as DirectParseDiagnostic;
-  const start = typeof direct.start === "number" ? byteOffsetToStringOffset(input.source, direct.start) : undefined;
-  const end = typeof direct.end === "number" ? byteOffsetToStringOffset(input.source, direct.end) : undefined;
+  const start =
+    typeof direct.start === "number"
+      ? byteOffsetToStringOffset(input.source, direct.start)
+      : undefined;
+  const end =
+    typeof direct.end === "number" ? byteOffsetToStringOffset(input.source, direct.end) : undefined;
   const location = start === undefined ? undefined : sourceLocationAtOffset(input.source, start);
   return {
     phase: "parse",
     severity: direct.severity === "warning" ? "warning" : "error",
     message: typeof direct.message === "string" ? direct.message : String(value),
-    filename: typeof direct.file === "string" && direct.file.length > 0 ? direct.file : input.filename,
+    filename:
+      typeof direct.file === "string" && direct.file.length > 0 ? direct.file : input.filename,
     location,
-    span: start !== undefined && end !== undefined ? sourceSpan(input.source, start, end) : undefined,
+    span:
+      start !== undefined && end !== undefined ? sourceSpan(input.source, start, end) : undefined,
     cause: stringifyCause(value),
   };
 }
@@ -136,7 +182,11 @@ function applyLiteralFix(program: unknown, fixPath: Array<string | number>): voi
   }
 
   if (typeof node !== "object" || node === null) return;
-  const literal = node as { bigint?: string; regex?: { pattern?: string; flags?: string }; value?: unknown };
+  const literal = node as {
+    bigint?: string;
+    regex?: { pattern?: string; flags?: string };
+    value?: unknown;
+  };
   if (literal.bigint) {
     literal.value = BigInt(literal.bigint);
     return;
@@ -151,20 +201,29 @@ function applyLiteralFix(program: unknown, fixPath: Array<string | number>): voi
 }
 
 function isProgramAst(value: unknown): value is OxcProgramAst {
-  return typeof value === "object" && value !== null &&
+  return (
+    typeof value === "object" &&
+    value !== null &&
     (value as { type?: unknown }).type === "Program" &&
-    Array.isArray((value as { body?: unknown }).body);
+    Array.isArray((value as { body?: unknown }).body)
+  );
 }
 
 function languageForFilename(filename: string): OxcLanguage {
   if (filename.endsWith(".tsx")) return "tsx";
-  if (filename.endsWith(".ts") || filename.endsWith(".mts") || filename.endsWith(".cts")) return "ts";
+  if (filename.endsWith(".ts") || filename.endsWith(".mts") || filename.endsWith(".cts"))
+    return "ts";
   if (filename.endsWith(".jsx")) return "jsx";
   return "js";
 }
 
 function isTypeScriptFilename(filename: string): boolean {
-  return filename.endsWith(".ts") || filename.endsWith(".tsx") || filename.endsWith(".mts") || filename.endsWith(".cts");
+  return (
+    filename.endsWith(".ts") ||
+    filename.endsWith(".tsx") ||
+    filename.endsWith(".mts") ||
+    filename.endsWith(".cts")
+  );
 }
 
 function collectArrayLike(value: unknown): unknown[] {

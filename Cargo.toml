@@ -1,0 +1,10 @@
+[workspace]
+members = ["native/parser", "native/transform"]
+resolver = "3"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

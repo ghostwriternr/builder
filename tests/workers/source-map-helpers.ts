@@ -15,7 +15,10 @@ export interface OriginalPosition {
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const BASE64_VALUES = new Map(Array.from(BASE64, (char, index) => [char, index]));
 
-export function originalPositionFor(map: SourceMapV3, generated: GeneratedPosition): OriginalPosition | undefined {
+export function originalPositionFor(
+  map: SourceMapV3,
+  generated: GeneratedPosition,
+): OriginalPosition | undefined {
   const line = decodedLines(map)[generated.line - 1];
   if (!line) return undefined;
 
@@ -25,7 +28,12 @@ export function originalPositionFor(map: SourceMapV3, generated: GeneratedPositi
     match = segment;
   }
 
-  if (!match || match.sourceIndex === undefined || match.originalLine === undefined || match.originalColumn === undefined) {
+  if (
+    !match ||
+    match.sourceIndex === undefined ||
+    match.originalLine === undefined ||
+    match.originalColumn === undefined
+  ) {
     return undefined;
   }
 
@@ -59,25 +67,28 @@ function decodedLines(map: SourceMapV3): DecodedSegment[][] {
     previousGeneratedColumn = 0;
     if (line.length === 0) return [];
 
-    return line.split(",").filter(Boolean).map((rawSegment) => {
-      const values = decodeVlqSegment(rawSegment);
-      previousGeneratedColumn += values[0] ?? 0;
+    return line
+      .split(",")
+      .filter(Boolean)
+      .map((rawSegment) => {
+        const values = decodeVlqSegment(rawSegment);
+        previousGeneratedColumn += values[0] ?? 0;
 
-      const segment: DecodedSegment = { generatedColumn: previousGeneratedColumn };
-      if (values.length >= 4) {
-        previousSourceIndex += values[1] ?? 0;
-        previousOriginalLine += values[2] ?? 0;
-        previousOriginalColumn += values[3] ?? 0;
-        segment.sourceIndex = previousSourceIndex;
-        segment.originalLine = previousOriginalLine;
-        segment.originalColumn = previousOriginalColumn;
-      }
-      if (values.length >= 5) {
-        previousNameIndex += values[4] ?? 0;
-        segment.nameIndex = previousNameIndex;
-      }
-      return segment;
-    });
+        const segment: DecodedSegment = { generatedColumn: previousGeneratedColumn };
+        if (values.length >= 4) {
+          previousSourceIndex += values[1] ?? 0;
+          previousOriginalLine += values[2] ?? 0;
+          previousOriginalColumn += values[3] ?? 0;
+          segment.sourceIndex = previousSourceIndex;
+          segment.originalLine = previousOriginalLine;
+          segment.originalColumn = previousOriginalColumn;
+        }
+        if (values.length >= 5) {
+          previousNameIndex += values[4] ?? 0;
+          segment.nameIndex = previousNameIndex;
+        }
+        return segment;
+      });
   });
 }
 

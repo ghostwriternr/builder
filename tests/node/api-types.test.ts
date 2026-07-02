@@ -4,9 +4,12 @@ import type { TransformInput } from "../../src/index";
 import { createOxc } from "../../src/index";
 
 // @ts-expect-error CreateOxcOptions is intentionally not exported.
-import type { CreateOxcOptions } from "../../src/index";
+import type { CreateOxcOptions as MissingCreateOxcOptions } from "../../src/index";
+
+type MissingOptionsExport = MissingCreateOxcOptions;
 
 describe("public API types", () => {
+  void (undefined as MissingOptionsExport | undefined);
   test("transform target is a single string", () => {
     const valid: TransformInput = {
       filename: "src/input.ts",

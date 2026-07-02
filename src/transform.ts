@@ -1,7 +1,19 @@
 import transformModule from "./wasm/transform.wasm";
 
-import { sourceLocationAtOffset, sourceSpan, runtimeDiagnostic, stringifyCause } from "./diagnostics.ts";
-import type { OxcDiagnostic, OxcLanguage, OxcResult, SourceMapV3, TransformInput, TransformOutput } from "./types.ts";
+import {
+  sourceLocationAtOffset,
+  sourceSpan,
+  runtimeDiagnostic,
+  stringifyCause,
+} from "./diagnostics.ts";
+import type {
+  OxcDiagnostic,
+  OxcLanguage,
+  OxcResult,
+  SourceMapV3,
+  TransformInput,
+  TransformOutput,
+} from "./types.ts";
 import { instantiateAbiModule, type TransformAbiExports } from "./abi/instance.ts";
 import { AbiMemoryScope } from "./abi/memory.ts";
 import { readJsonResult } from "./abi/result.ts";
@@ -41,22 +53,31 @@ export function createTransformRuntime(): TransformRuntime {
         } catch {
           // Preserve the original error in this call's diagnostic.
         }
-        return { ok: false, diagnostics: [runtimeDiagnostic("runtime", "Oxc transform runtime failed.", error)] };
+        return {
+          ok: false,
+          diagnostics: [runtimeDiagnostic("runtime", "Oxc transform runtime failed.", error)],
+        };
       }
     },
   };
 }
 
-function transformWithExports(exports: TransformAbiExports, input: TransformInput): OxcResult<TransformOutput> {
+function transformWithExports(
+  exports: TransformAbiExports,
+  input: TransformInput,
+): OxcResult<TransformOutput> {
   if (Array.isArray(input.target)) {
     return {
       ok: false,
-      diagnostics: [{
-        phase: "transform",
-        severity: "error",
-        message: "Oxc transform target arrays are not supported by the workerd direct ABI yet. Pass a single target string.",
-        filename: input.filename,
-      }],
+      diagnostics: [
+        {
+          phase: "transform",
+          severity: "error",
+          message:
+            "Oxc transform target arrays are not supported by the workerd direct ABI yet. Pass a single target string.",
+          filename: input.filename,
+        },
+      ],
     };
   }
 
@@ -65,10 +86,18 @@ function transformWithExports(exports: TransformAbiExports, input: TransformInpu
     const filename = scope.writeString(input.filename);
     const source = scope.writeString(input.source);
     const optionsJson = JSON.stringify(transformOptions(input));
-    if (optionsJson === undefined) throw new Error("Oxc transform options must be JSON-serializable.");
+    if (optionsJson === undefined)
+      throw new Error("Oxc transform options must be JSON-serializable.");
     const options = scope.writeString(optionsJson);
 
-    const handle = exports.transform(filename.ptr, filename.len, source.ptr, source.len, options.ptr, options.len);
+    const handle = exports.transform(
+      filename.ptr,
+      filename.len,
+      source.ptr,
+      source.len,
+      options.ptr,
+      options.len,
+    );
     const payload = readJsonResult<DirectTransformPayload>(exports, handle);
     return transformPayload(input, payload);
   } finally {
@@ -76,15 +105,28 @@ function transformWithExports(exports: TransformAbiExports, input: TransformInpu
   }
 }
 
-function transformPayload(input: TransformInput, payload: DirectTransformPayload): OxcResult<TransformOutput> {
-  const diagnostics = collectArrayLike(payload.diagnostics).map((diagnostic) => normalizeDiagnostic(input, diagnostic));
+function transformPayload(
+  input: TransformInput,
+  payload: DirectTransformPayload,
+): OxcResult<TransformOutput> {
+  const diagnostics = collectArrayLike(payload.diagnostics).map((diagnostic) =>
+    normalizeDiagnostic(input, diagnostic),
+  );
 
   if (payload.ok !== true || typeof payload.code !== "string") {
     return {
       ok: false,
-      diagnostics: diagnostics.length > 0
-        ? diagnostics
-        : [{ phase: "transform", severity: "error", message: "Oxc transform failed without structured diagnostics.", filename: input.filename }],
+      diagnostics:
+        diagnostics.length > 0
+          ? diagnostics
+          : [
+              {
+                phase: "transform",
+                severity: "error",
+                message: "Oxc transform failed without structured diagnostics.",
+                filename: input.filename,
+              },
+            ],
     };
   }
 
@@ -118,31 +160,41 @@ function normalizeJsx(jsx: TransformInput["jsx"]): unknown {
 
 function normalizeDiagnostic(input: TransformInput, value: unknown): OxcDiagnostic {
   const direct = value as DirectTransformDiagnostic;
-  const start = typeof direct.start === "number" ? byteOffsetToStringOffset(input.source, direct.start) : undefined;
-  const end = typeof direct.end === "number" ? byteOffsetToStringOffset(input.source, direct.end) : undefined;
+  const start =
+    typeof direct.start === "number"
+      ? byteOffsetToStringOffset(input.source, direct.start)
+      : undefined;
+  const end =
+    typeof direct.end === "number" ? byteOffsetToStringOffset(input.source, direct.end) : undefined;
   const location = start === undefined ? undefined : sourceLocationAtOffset(input.source, start);
   return {
     phase: "transform",
     severity: direct.severity === "warning" ? "warning" : "error",
     message: typeof direct.message === "string" ? direct.message : String(value),
-    filename: typeof direct.file === "string" && direct.file.length > 0 ? direct.file : input.filename,
+    filename:
+      typeof direct.file === "string" && direct.file.length > 0 ? direct.file : input.filename,
     location,
-    span: start !== undefined && end !== undefined ? sourceSpan(input.source, start, end) : undefined,
+    span:
+      start !== undefined && end !== undefined ? sourceSpan(input.source, start, end) : undefined,
     cause: stringifyCause(value),
   };
 }
 
 function isSourceMapV3(value: unknown): value is SourceMapV3 {
-  return typeof value === "object" && value !== null &&
+  return (
+    typeof value === "object" &&
+    value !== null &&
     (value as { version?: unknown }).version === 3 &&
     Array.isArray((value as { sources?: unknown }).sources) &&
     Array.isArray((value as { names?: unknown }).names) &&
-    typeof (value as { mappings?: unknown }).mappings === "string";
+    typeof (value as { mappings?: unknown }).mappings === "string"
+  );
 }
 
 function languageForFilename(filename: string): OxcLanguage {
   if (filename.endsWith(".tsx")) return "tsx";
-  if (filename.endsWith(".ts") || filename.endsWith(".mts") || filename.endsWith(".cts")) return "ts";
+  if (filename.endsWith(".ts") || filename.endsWith(".mts") || filename.endsWith(".cts"))
+    return "ts";
   if (filename.endsWith(".jsx")) return "jsx";
   return "js";
 }

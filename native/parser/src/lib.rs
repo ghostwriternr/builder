@@ -1,4 +1,10 @@
-use std::{alloc::{alloc as rust_alloc, dealloc, Layout}, cell::RefCell, collections::BTreeMap, path::Path, slice, str};
+use std::{
+    alloc::{Layout, alloc as rust_alloc, dealloc},
+    cell::RefCell,
+    collections::BTreeMap,
+    path::Path,
+    slice, str,
+};
 
 use oxc_allocator::Allocator;
 use oxc_ast_visit::utf8_to_utf16::Utf8ToUtf16;
@@ -67,7 +73,9 @@ pub unsafe extern "C" fn free(ptr: *mut u8, len: usize) {
         return;
     }
     if let Ok(layout) = Layout::array::<u8>(len) {
-        unsafe { dealloc(ptr, layout); }
+        unsafe {
+            dealloc(ptr, layout);
+        }
     }
 }
 
@@ -81,7 +89,14 @@ pub unsafe extern "C" fn parse(
     options_len: usize,
 ) -> u32 {
     store_result(unsafe {
-        parse_inner(filename_ptr, filename_len, source_ptr, source_len, options_ptr, options_len)
+        parse_inner(
+            filename_ptr,
+            filename_len,
+            source_ptr,
+            source_len,
+            options_ptr,
+            options_len,
+        )
     })
 }
 
@@ -124,7 +139,11 @@ unsafe fn parse_inner(
     converter.convert_module_record(&mut module_record);
 
     let include_ts_fields = options.ast_type.as_deref().unwrap_or_else(|| {
-        if source_type.is_typescript() { "ts" } else { "js" }
+        if source_type.is_typescript() {
+            "ts"
+        } else {
+            "js"
+        }
     }) == "ts";
     let ranges = options.range.unwrap_or(false);
     let raw_program = program.to_estree_json_with_fixes(include_ts_fields, ranges);
@@ -156,7 +175,11 @@ fn diagnostic_payload(filename: &str, diagnostic: &OxcDiagnostic) -> DiagnosticP
         .unwrap_or((None, None));
 
     DiagnosticPayload {
-        severity: if diagnostic.severity == Severity::Warning { "warning" } else { "error" },
+        severity: if diagnostic.severity == Severity::Warning {
+            "warning"
+        } else {
+            "error"
+        },
         message: diagnostic.to_string(),
         file: filename.to_string(),
         start,
@@ -230,7 +253,10 @@ fn store_result(bytes: Vec<u8>) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn result_ptr(handle: u32) -> *const u8 {
     RESULTS.with(|results| {
-        results.borrow().get(&handle).map_or(std::ptr::null(), |bytes| bytes.as_ptr())
+        results
+            .borrow()
+            .get(&handle)
+            .map_or(std::ptr::null(), |bytes| bytes.as_ptr())
     })
 }
 

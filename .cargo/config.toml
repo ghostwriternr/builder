@@ -1,0 +1,2 @@
+[alias]
+build-wasm = "build --locked --workspace --target wasm32-unknown-unknown --release"

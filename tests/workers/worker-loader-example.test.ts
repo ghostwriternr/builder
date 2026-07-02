@@ -7,16 +7,18 @@ import { expectOk } from "./helpers";
 describe("Worker Loader example proof", () => {
   test("loads transformed output with a manual Worker Loader definition", async () => {
     const oxc = await createOxc();
-    const { code } = expectOk(oxc.transform({
-      filename: "index.ts",
-      source: `
+    const { code } = expectOk(
+      oxc.transform({
+        filename: "index.ts",
+        source: `
         export default {
           fetch() {
             return new Response("hello from transformed worker");
           }
         };
       `,
-    }));
+      }),
+    );
 
     const worker = env.LOADER.get("manual-oxc-transform-example", () => ({
       mainModule: "index.js",

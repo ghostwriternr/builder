@@ -3,7 +3,7 @@ export function byteOffsetToStringOffset(source: string, byteOffset: number): nu
   const target = Math.max(0, Math.trunc(byteOffset));
   let bytes = 0;
 
-  for (let index = 0; index < source.length;) {
+  for (let index = 0; index < source.length; ) {
     if (bytes >= target) return index;
     const codePoint = source.codePointAt(index) ?? 0;
     const width = utf8ByteLength(codePoint);

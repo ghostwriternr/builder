@@ -1,4 +1,11 @@
-import type { Oxc, OxcResult, ParseInput, ParseOutput, TransformInput, TransformOutput } from "./types.ts";
+import type {
+  Oxc,
+  OxcResult,
+  ParseInput,
+  ParseOutput,
+  TransformInput,
+  TransformOutput,
+} from "./types.ts";
 
 let defaultOxcPromise: Promise<Oxc> | undefined;
 
