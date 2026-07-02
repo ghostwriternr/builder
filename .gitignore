@@ -1,14 +1,7 @@
 node_modules/
-.tmp/
 .wrangler/
+.tmp/
 dist/
 coverage/
-.superpowers/
 *.log
-*.tgz
 .DS_Store
-
-# Local scratch artifacts
-test-dummy
-test-rewrite.js
-context.md

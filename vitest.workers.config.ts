@@ -4,13 +4,13 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" }
-    })
+      wrangler: { configPath: "./wrangler.jsonc" },
+    }),
   ],
   test: {
     name: "workerd",
     include: ["tests/workers/**/*.test.ts"],
     testTimeout: 30_000,
-    hookTimeout: 30_000
-  }
+    hookTimeout: 30_000,
+  },
 });

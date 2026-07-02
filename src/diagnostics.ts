@@ -1,45 +1,28 @@
-import type { SourceSpan, ToolName, ToolchainDiagnostic, ToolchainEvidence } from "./types";
+import type { DiagnosticKind, SourceLocation, SourceSpan, ToolName, ToolchainDiagnostic, ToolchainEvidence } from "./types.ts";
 
-export interface SourceLocation {
-  line: number;
-  column: number;
-}
-
-export function diagnostic(
-  tool: ToolName,
-  kind: ToolchainDiagnostic["kind"],
-  message: string,
-  cause?: unknown
-): ToolchainDiagnostic {
+export function diagnostic(tool: ToolName, kind: DiagnosticKind, message: string, cause?: unknown): ToolchainDiagnostic {
   return {
     tool,
     kind,
-    severity: kind === "warning" || kind === "not-applicable" ? "warning" : "error",
+    severity: kind === "warning" ? "warning" : "error",
     message,
-    cause: stringifyCause(cause)
+    cause: stringifyCause(cause),
   };
 }
 
 export function diagnosticAtSourceOffset(
   tool: ToolName,
-  kind: ToolchainDiagnostic["kind"],
+  kind: DiagnosticKind,
   message: string,
-  options: {
-    source: string;
-    offset: number;
-    end?: number;
-    file?: string;
-    cause?: unknown;
-  }
+  options: { source: string; offset: number; end?: number; file?: string; cause?: unknown },
 ): ToolchainDiagnostic {
   const location = sourceLocationAtOffset(options.source, options.offset);
-  const span = sourceSpan(options.source, options.offset, options.end);
   return {
     ...diagnostic(tool, kind, message, options.cause),
     file: options.file,
     line: location.line,
     column: location.column,
-    span
+    span: sourceSpan(options.source, options.offset, options.end),
   };
 }
 
@@ -48,7 +31,7 @@ export function sourceLocationAtOffset(source: string, offset: number): SourceLo
   let line = 1;
   let lineStart = 0;
 
-  for (let index = 0; index < clampedOffset; index++) {
+  for (let index = 0; index < clampedOffset; index += 1) {
     if (source[index] === "\n") {
       line += 1;
       lineStart = index + 1;
@@ -64,7 +47,7 @@ export function sourceOffsetAtLocation(source: string, location: SourceLocation)
   let line = 1;
   let lineStart = 0;
 
-  for (let index = 0; index < source.length && line < targetLine; index++) {
+  for (let index = 0; index < source.length && line < targetLine; index += 1) {
     if (source[index] === "\n") {
       line += 1;
       lineStart = index + 1;
@@ -76,26 +59,7 @@ export function sourceOffsetAtLocation(source: string, location: SourceLocation)
   return Math.min(lineStart + targetColumn - 1, maxOffset);
 }
 
-function sourceSpan(source: string, start: number, end = start): SourceSpan {
-  const clampedStart = clampOffset(source, start);
-  const clampedEnd = clampOffset(source, end);
-  return clampedStart <= clampedEnd
-    ? { start: clampedStart, end: clampedEnd }
-    : { start: clampedEnd, end: clampedStart };
-}
-
-function clampOffset(source: string, offset: number): number {
-  if (!Number.isFinite(offset)) return 0;
-  return Math.min(Math.max(Math.trunc(offset), 0), source.length);
-}
-
-export function evidence(
-  tool: ToolName,
-  stage: ToolchainEvidence["stage"],
-  ok: boolean,
-  started: number,
-  detail?: string
-): ToolchainEvidence {
+export function evidence(tool: ToolName, stage: ToolchainEvidence["stage"], ok: boolean, started: number, detail?: string): ToolchainEvidence {
   return { tool, stage, ok, durationMs: Math.round(performance.now() - started), detail };
 }
 
@@ -109,6 +73,15 @@ export function stringifyCause(cause: unknown): string | undefined {
   }
 }
 
-export function isProbablyWorkerd(): boolean {
-  return typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
+function sourceSpan(source: string, start: number, end = start): SourceSpan {
+  const clampedStart = clampOffset(source, start);
+  const clampedEnd = clampOffset(source, end);
+  return clampedStart <= clampedEnd
+    ? { start: clampedStart, end: clampedEnd }
+    : { start: clampedEnd, end: clampedStart };
+}
+
+function clampOffset(source: string, offset: number): number {
+  if (!Number.isFinite(offset)) return 0;
+  return Math.min(Math.max(Math.trunc(offset), 0), source.length);
 }

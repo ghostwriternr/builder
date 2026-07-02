@@ -1,101 +1,111 @@
-import { describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
-import {
-  WORKER_ENTRY_FIXTURE,
-  TSX_COMPONENT_FIXTURE,
-  checkReactTsx,
-  compileDynamicWorker,
-  explainDevelopmentTooling,
-  loadDynamicWorker,
-  toLoaderDefinition
-} from "../../src/index";
-import type { WorkerLoaderBinding } from "../../src/types";
+import { env } from "cloudflare:test";
+import { describe, expect, test } from "vitest";
 
-interface Env {
-  LOADER: WorkerLoaderBinding;
-}
+import { compileDynamicWorkerModules, loadDynamicWorker, toLoaderDefinition } from "../../src/index";
 
-const workerEnv = env as unknown as Env;
-
-let id = 0;
-
-describe("Dynamic Worker TSX compiler workflow in workerd", () => {
-  it("can load a control Worker Loader module shape", async () => {
-    const worker = workerEnv.LOADER.get(`control-${id++}`, () => ({
-      compatibilityDate: "2026-06-30",
-      mainModule: "index.js",
+describe("compileDynamicWorkerModules", () => {
+  test("transforms an explicit TS module map and loads it with Worker Loader", async () => {
+    const build = await compileDynamicWorkerModules({
+      entrypoint: "src/index.ts",
       modules: {
-        "index.js": `export default { fetch() { return new Response("loader control ok") } }`
-      }
-    }));
-
-    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
-    expect(await response.text()).toBe("loader control ok");
-  });
-
-  it("checks React TSX source through the workerd Oxc parser path or returns structured evidence", async () => {
-    const result = await checkReactTsx(TSX_COMPONENT_FIXTURE);
-
-    expect(result.evidence.length).toBeGreaterThan(0);
-    if (!result.ok) {
-      expect(result.diagnostics.length).toBeGreaterThan(0);
-      expect(result.diagnostics[0]).toMatchObject({ tool: "oxc-parser", severity: "error" });
-    }
-  });
-
-  it("compiles the minimal Worker fixture when a VoidZero-family workerd path is viable", async () => {
-    const build = await compileDynamicWorker({
-      entrypoint: "src/index.tsx",
-      files: { "src/index.tsx": WORKER_ENTRY_FIXTURE }
+        "src/index.ts": `
+          import { message } from "./message.js";
+          export default { async fetch() { return new Response(message) } };
+        `,
+        "src/message.ts": `export const message: string = "hello from workerd-oxc";`,
+      },
     });
 
-    expect(build.evidence.length).toBeGreaterThan(0);
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.mainModule).toBe("src/index.js");
+    expect(Object.keys(build.modules ?? {}).sort()).toEqual(["src/index.js", "src/message.js"]);
 
-    if (!build.ok) {
-      expect(build.mainModule).toBeUndefined();
-      expect(build.modules).toBeUndefined();
-      expect(build.diagnostics.length).toBeGreaterThan(0);
-      expect(build.diagnostics.every((d) => d.severity === "error")).toBe(true);
-      return;
-    }
+    const definition = toLoaderDefinition(build, { compatibilityDate: "2026-06-30" });
+    expect(definition.mainModule).toBe("src/index.js");
 
-    expect(build.mainModule).toBeDefined();
-    expect(build.modules?.[build.mainModule!]).toContain("hello from compiled worker");
+    const worker = loadDynamicWorker(env.LOADER, "explicit-map-load", build, { compatibilityDate: "2026-06-30" });
+    const response = await worker.getEntrypoint().fetch(new Request("https://example.com/"));
+    await expect(response.text()).resolves.toBe("hello from workerd-oxc");
+  });
 
-    const worker = loadDynamicWorker(workerEnv.LOADER, `compiled-${id++}`, build, {
-      compatibilityDate: "2026-06-30"
+  test("does not resolve or rewrite caller import specifiers", async () => {
+    const build = await compileDynamicWorkerModules({
+      entrypoint: "src/index.ts",
+      modules: {
+        "src/index.ts": `
+          import { message } from "./message.ts";
+          export default { async fetch() { return new Response(message) } };
+        `,
+        "src/message.ts": `export const message: string = "unresolved by design";`,
+      },
     });
-    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
-    expect(await response.text()).toBe("hello from compiled worker");
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.modules?.["src/index.js"]).toContain("./message.ts");
+    expect(build.modules?.["src/message.js"]).toContain("unresolved by design");
+
+    const worker = loadDynamicWorker(env.LOADER, "unresolved-specifier-load", build, { compatibilityDate: "2026-06-30" });
+    await expect(worker.getEntrypoint().fetch(new Request("https://example.com/"))).rejects.toThrow(/message\.ts|No such module|not found|could not resolve/i);
   });
 
-  it("distinguishes loader-shape failures from compiler failures", () => {
-    expect(() =>
-      toLoaderDefinition({
-        ok: false,
-        diagnostics: [
-          {
-            tool: "rolldown-browser",
-            kind: "bundle-failed",
-            severity: "error",
-            message: "bundle failed before loader"
-          }
-        ],
-        evidence: [],
-        toolchain: { loaderTarget: "none" }
-      })
-    ).toThrow(/Cannot create Worker Loader definition/);
+  test("rejects malformed object module content before Worker Loader", async () => {
+    const multiKey = await compileDynamicWorkerModules({
+      entrypoint: "src/index.ts",
+      modules: {
+        "src/index.ts": `export default { async fetch() { return new Response("unused") } };`,
+        "src/bad.js": { js: "export const a = 1;", text: "bad" } as never,
+      },
+    });
+
+    expect(multiKey.ok).toBe(false);
+    expect(multiKey.diagnostics[0]).toMatchObject({
+      tool: "internal",
+      kind: "loader-shape-failed",
+      severity: "error",
+      message: expect.stringContaining("exactly one"),
+    });
+
+    const nullModule = await compileDynamicWorkerModules({
+      entrypoint: "src/index.ts",
+      modules: {
+        "src/index.ts": `export default { async fetch() { return new Response("unused") } };`,
+        "src/null.js": null as never,
+      },
+    });
+
+    expect(nullModule.ok).toBe(false);
+    expect(nullModule.diagnostics[0]).toMatchObject({
+      tool: "internal",
+      kind: "loader-shape-failed",
+      severity: "error",
+      message: expect.stringContaining("must be a string or object module"),
+    });
   });
 
-  it("classifies Vite/Oxlint/Oxfmt as development tools, not workerd builder paths", async () => {
-    const result = await explainDevelopmentTooling();
-    expect(result.ok).toBe(false);
-    expect(result.diagnostics.map((d) => d.tool)).toEqual([
-      "vite",
-      "rolldown-vite",
-      "oxlint",
-      "oxfmt"
-    ]);
-    expect(result.diagnostics.every((d) => d.kind === "not-applicable")).toBe(true);
+  test("preserves non-JS Worker Loader object modules as explicit leaves", async () => {
+    const build = await compileDynamicWorkerModules({
+      entrypoint: "src/index.ts",
+      modules: {
+        "src/index.ts": `
+          import data from "./data.json";
+          import text from "./note.txt";
+          export default { async fetch() { return Response.json({ data, text }) } };
+        `,
+        "src/data.json": { json: { ok: true } },
+        "src/note.txt": { text: "note" },
+      },
+    });
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.modules?.["src/data.json"]).toEqual({ json: { ok: true } });
+    expect(build.modules?.["src/note.txt"]).toEqual({ text: "note" });
+
+    const worker = loadDynamicWorker(env.LOADER, "object-module-load", build, { compatibilityDate: "2026-06-30" });
+    const response = await worker.getEntrypoint().fetch(new Request("https://example.com/"));
+    await expect(response.json()).resolves.toEqual({ data: { ok: true }, text: "note" });
+  });
+
+  test("rejects failed builds before Worker Loader", () => {
+    expect(() => toLoaderDefinition({ ok: false, diagnostics: [], evidence: [] })).toThrow(/failed build/i);
   });
 });

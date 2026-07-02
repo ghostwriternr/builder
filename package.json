@@ -1,9 +1,9 @@
 {
-  "name": "workers-tsx-toolchain-spike",
+  "name": "workerd-oxc",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Experimental workerd-only TSX/Dynamic Worker compiler spike for Oxc/Rolldown/Vite-family tooling.",
+  "description": "Experimental Oxc parser and transform adapter for Cloudflare workerd.",
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -14,32 +14,16 @@
     "test": "vitest run --config vitest.config.ts && vitest run --config vitest.workers.config.ts",
     "test:node": "vitest run --config vitest.config.ts",
     "test:workers": "vitest run --config vitest.workers.config.ts",
-    "test:operational": "vitest run --config vitest.workers.config.ts tests/workers/experiments/swc-operational.test.ts tests/workers/oxc/compile-stress.test.ts tests/workers/measurements/session-cache-measurements.test.ts",
-    "test:session-cache": "vitest run --config vitest.workers.config.ts tests/workers/measurements/session-cache-measurements.test.ts",
-    "test:bundle-shape": "vitest run --config vitest.config.ts tests/node/wrangler-bundle-shape.test.ts",
-    "test:startup": "vitest run --config vitest.config.ts tests/node/wrangler-bundle-shape.test.ts && vitest run --config vitest.workers.config.ts tests/workers/measurements/oxc-operational-measurements.test.ts",
-    "test:risk": "vitest run --config vitest.config.ts tests/node/toolchain-footprint.test.ts tests/node/wrangler-bundle-shape.test.ts && vitest run --config vitest.workers.config.ts tests/workers/measurements/toolchain-memory-risk.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@alexbruf/wasmkernel": "^0.2.1",
-    "@babel/parser": "8.0.0",
-    "@bjorn3/browser_wasi_shim": "^0.4.2",
-    "@rolldown/browser": "^1.1.3",
-    "@swc/wasm-web": "1.15.43",
-    "oxc-parser": "^0.137.0",
-    "oxc-transform": "^0.137.0",
-    "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0",
-    "rolldown-vite": "^7.3.1",
-    "vite": "^8.1.0"
+    "@bjorn3/browser_wasi_shim": "^0.4.2"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
     "@cloudflare/workers-types": "latest",
     "@types/node": "^26.0.1",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
     "typescript": "latest",
     "vitest": "latest",
     "wrangler": "latest"

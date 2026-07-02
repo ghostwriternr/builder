@@ -1,16 +1,12 @@
-import type {
-  DynamicWorkerModuleContent,
-  DynamicWorkerModules,
-  ReactWorkerBuildOutput,
-} from "./types";
+import type { DynamicWorkerBuildOutput, DynamicWorkerModuleContent, DynamicWorkerModules } from "./types.ts";
 
-export type HashableDynamicWorkerBuild = DynamicWorkerModules | ReactWorkerBuildOutput;
+export type HashableDynamicWorkerBuild = DynamicWorkerModules | DynamicWorkerBuildOutput;
 
 export function hashDynamicWorkerBuild(build: HashableDynamicWorkerBuild): string {
   const modules = extractModules(build);
   const hasher = new StableHasher();
 
-  hasher.writeString("workers-tsx-toolchain-spike:dynamic-worker-build:v1");
+  hasher.writeString("workerd-oxc:dynamic-worker-build:v1");
   hasher.writeString("main");
   hasher.writeString(modules.mainModule);
   hasher.writeString("modules");
@@ -30,32 +26,21 @@ export function dynamicWorkerBuildId(prefix: string, build: HashableDynamicWorke
 }
 
 function extractModules(build: HashableDynamicWorkerBuild): DynamicWorkerModules {
-  if ("ok" in build && build.ok !== true) {
-    throw new TypeError("Cannot hash a failed Dynamic Worker build.");
-  }
-
+  if ("ok" in build && build.ok !== true) throw new TypeError("Cannot hash a failed Dynamic Worker build.");
   if (typeof build.mainModule !== "string" || build.mainModule.length === 0 || build.modules === undefined) {
     throw new TypeError("Dynamic Worker build hash requires mainModule and modules.");
   }
-
   if (build.modules[build.mainModule] === undefined) {
     throw new TypeError(`Dynamic Worker build mainModule is not present in modules: ${build.mainModule}`);
   }
-
   return { mainModule: build.mainModule, modules: build.modules };
 }
 
 function normalizeIdPrefix(prefix: string): string {
   const normalized = prefix.trim();
-  if (normalized.length === 0) {
-    throw new TypeError("Dynamic Worker build ID prefix must not be empty.");
-  }
-  if (normalized.includes(":")) {
-    throw new TypeError("Dynamic Worker build ID prefix must not contain ':'.");
-  }
-  if (/\s/.test(normalized)) {
-    throw new TypeError("Dynamic Worker build ID prefix must not contain whitespace.");
-  }
+  if (normalized.length === 0) throw new TypeError("Dynamic Worker build ID prefix must not be empty.");
+  if (normalized.includes(":")) throw new TypeError("Dynamic Worker build ID prefix must not contain ':'.");
+  if (/\s/.test(normalized)) throw new TypeError("Dynamic Worker build ID prefix must not contain whitespace.");
   return normalized;
 }
 
@@ -67,36 +52,28 @@ function writeModuleContent(hasher: StableHasher, content: DynamicWorkerModuleCo
   }
 
   const keys = Object.keys(content);
-  if (keys.length !== 1) {
-    throw new TypeError(`Dynamic Worker module content must contain exactly one type key; got ${keys.length}.`);
-  }
+  if (keys.length !== 1) throw new TypeError(`Dynamic Worker module content must contain exactly one type key; got ${keys.length}.`);
 
   const key = keys[0];
   const record = content as Record<string, unknown>;
   switch (key) {
     case "js":
     case "cjs":
-    case "text": {
-      if (typeof record[key] !== "string") {
-        throw new TypeError(`Dynamic Worker module key '${key}' must contain a string.`);
-      }
+    case "text":
+      if (typeof record[key] !== "string") throw new TypeError(`Dynamic Worker module key '${key}' must contain a string.`);
       hasher.writeString(key);
       hasher.writeString(record[key]);
       return;
-    }
     case "json":
       hasher.writeString("json");
       writeCanonicalJson(hasher, record.json);
       return;
     case "data":
-    case "wasm": {
-      if (!(record[key] instanceof ArrayBuffer)) {
-        throw new TypeError(`Dynamic Worker module key '${key}' must contain an ArrayBuffer.`);
-      }
+    case "wasm":
+      if (!(record[key] instanceof ArrayBuffer)) throw new TypeError(`Dynamic Worker module key '${key}' must contain an ArrayBuffer.`);
       hasher.writeString(key);
       hasher.writeBytes(new Uint8Array(record[key]));
       return;
-    }
     default:
       throw new TypeError(`Unsupported Dynamic Worker module content key: ${key}.`);
   }
@@ -116,9 +93,7 @@ function writeCanonicalJson(hasher: StableHasher, value: unknown): void {
   }
 
   if (type === "number") {
-    if (!Number.isFinite(value)) {
-      throw new TypeError("JSON module numbers must be finite for Dynamic Worker build hashing.");
-    }
+    if (!Number.isFinite(value)) throw new TypeError("JSON module numbers must be finite for Dynamic Worker build hashing.");
     hasher.writeString(type);
     hasher.writeString(JSON.stringify(value));
     return;
@@ -132,17 +107,13 @@ function writeCanonicalJson(hasher: StableHasher, value: unknown): void {
   }
 
   if (type === "object") {
-    if (Object.getPrototypeOf(value) !== Object.prototype) {
-      throw new TypeError("JSON module objects must be plain objects for Dynamic Worker build hashing.");
-    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) throw new TypeError("JSON module objects must be plain objects for Dynamic Worker build hashing.");
     const record = value as Record<string, unknown>;
     const keys = Object.keys(record).sort();
     hasher.writeString("object");
     hasher.writeString(String(keys.length));
     for (const key of keys) {
-      if (record[key] === undefined) {
-        throw new TypeError(`JSON module property '${key}' is undefined and cannot be hashed deterministically.`);
-      }
+      if (record[key] === undefined) throw new TypeError(`JSON module property '${key}' is undefined and cannot be hashed deterministically.`);
       hasher.writeString(key);
       writeCanonicalJson(hasher, record[key]);
     }

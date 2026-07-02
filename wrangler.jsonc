@@ -1,19 +1,10 @@
 {
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "workers-tsx-toolchain-spike",
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "workerd-oxc-tests",
   "main": "src/index.ts",
   "compatibility_date": "2026-06-30",
-  "compatibility_flags": ["nodejs_compat"],
+  "worker_loaders": [{ "binding": "LOADER" }],
   "rules": [
-    {
-      "type": "Data",
-      "globs": ["**/*.wasm.bin"],
-      "fallthrough": true
-    }
-  ],
-  "worker_loaders": [
-    {
-      "binding": "LOADER"
-    }
+    { "type": "Data", "globs": ["**/*.wasm.bin"], "fallthrough": true }
   ]
 }

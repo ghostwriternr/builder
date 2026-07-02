@@ -1,30 +1,21 @@
-export type ToolName =
-  | "oxc-parser"
-  | "oxc-transform"
-  | "rolldown-browser"
-  | "vite"
-  | "rolldown-vite"
-  | "oxlint"
-  | "oxfmt"
-  | "worker-loader"
-  | "babel-parser"
-  | "swc-wasm-web"
-  | "internal";
+export type ToolName = "oxc-parser" | "oxc-transform" | "worker-loader" | "internal";
 
 export type DiagnosticKind =
   | "import-failed"
-  | "runtime-unsupported"
   | "parse-failed"
   | "transform-failed"
-  | "bundle-failed"
   | "loader-shape-failed"
   | "loaded-worker-failed"
-  | "not-applicable"
   | "warning";
 
 export interface SourceSpan {
   start: number;
   end: number;
+}
+
+export interface SourceLocation {
+  line: number;
+  column: number;
 }
 
 export interface ToolchainDiagnostic {
@@ -41,35 +32,19 @@ export interface ToolchainDiagnostic {
 
 export interface ToolchainEvidence {
   tool: ToolName;
-  stage: "import" | "parse" | "transform" | "bundle" | "loader-shape" | "worker-loader";
+  stage: "import" | "parse" | "transform" | "loader-shape" | "worker-loader";
   ok: boolean;
   durationMs?: number;
   detail?: string;
 }
 
-export type DynamicWorkerVirtualObjectModuleContent =
+export type DynamicWorkerObjectModuleContent =
   | { js: string }
+  | { cjs: string }
   | { json: unknown }
   | { text: string }
   | { data: ArrayBuffer }
   | { wasm: ArrayBuffer };
-
-export type DynamicWorkerCjsModuleContent = { cjs: string };
-
-export type DynamicWorkerObjectModuleContent = DynamicWorkerVirtualObjectModuleContent | DynamicWorkerCjsModuleContent;
-
-export type DynamicWorkerVirtualModuleContent = string | DynamicWorkerVirtualObjectModuleContent;
-
-export interface ReactWorkerBuildInput {
-  files: Record<string, string>;
-  entrypoint: string;
-  virtualModules?: Record<string, DynamicWorkerVirtualModuleContent>;
-  packageFiles?: Record<string, string>;
-  jsx?: {
-    runtime?: "automatic" | "classic" | "preserve";
-    importSource?: string;
-  };
-}
 
 export type DynamicWorkerModuleContent = string | DynamicWorkerObjectModuleContent;
 
@@ -78,71 +53,42 @@ export interface DynamicWorkerModules {
   modules: Record<string, DynamicWorkerModuleContent>;
 }
 
-export interface ReactWorkerBuildOutput {
+export interface ParseOptions {
+  lang?: "js" | "jsx" | "ts" | "tsx";
+  sourceType?: "module" | "script";
+  astType?: "js" | "ts";
+  [key: string]: unknown;
+}
+
+export type OxcProgramAst = { type: "Program"; sourceType?: string; body: unknown[]; [key: string]: unknown };
+
+export type ParseAstResult =
+  | { ok: true; ast: OxcProgramAst; rawProgramLength: number; diagnostics: []; evidence: ToolchainEvidence[] }
+  | { ok: false; ast?: undefined; rawProgramLength?: number; diagnostics: ToolchainDiagnostic[]; evidence: ToolchainEvidence[] };
+
+export interface TransformOptions {
+  jsx?: {
+    runtime?: "automatic" | "classic" | "preserve";
+    importSource?: string;
+  };
+}
+
+export type TransformResult =
+  | { ok: true; code: string; map?: unknown; diagnostics: []; evidence: ToolchainEvidence[] }
+  | { ok: false; code?: undefined; map?: undefined; diagnostics: ToolchainDiagnostic[]; evidence: ToolchainEvidence[] };
+
+export interface ExplicitModuleCompileInput {
+  entrypoint: string;
+  modules: Record<string, DynamicWorkerModuleContent>;
+  jsx?: TransformOptions["jsx"];
+}
+
+export interface DynamicWorkerBuildOutput {
   ok: boolean;
   mainModule?: string;
   modules?: Record<string, DynamicWorkerModuleContent>;
   diagnostics: ToolchainDiagnostic[];
   evidence: ToolchainEvidence[];
-  toolchain: {
-    parser?: ToolName;
-    transformer?: ToolName;
-    bundler?: ToolName;
-    loaderTarget: "worker-loader" | "none";
-  };
-}
-
-export interface DynamicWorkerBuildSessionCacheMetadata {
-  transformedModules: string[];
-  reusedModules: string[];
-  droppedModules: string[];
-  graphRebuilt: boolean;
-  graphScannedModules: string[];
-  graphReusedModules: string[];
-  packageGraphRebuilt: boolean;
-}
-
-export interface DynamicWorkerBuildSessionMetadata {
-  revision: number;
-  changedFiles: string[];
-  deletedFiles: string[];
-  changedVirtualModules: string[];
-  deletedVirtualModules: string[];
-  changedPackageFiles: string[];
-  deletedPackageFiles: string[];
-  reusedLastGoodBuild: boolean;
-  lastSuccessfulRevision?: number;
-  cache?: DynamicWorkerBuildSessionCacheMetadata;
-}
-
-export interface DynamicWorkerBuildSessionCompileResult extends ReactWorkerBuildOutput {
-  session: DynamicWorkerBuildSessionMetadata;
-}
-
-export interface DynamicWorkerBuildSession {
-  readonly revision: number;
-  compile(): Promise<DynamicWorkerBuildSessionCompileResult>;
-  updateFile(path: string, source: string): void;
-  deleteFile(path: string): void;
-  setVirtualModule(path: string, content: DynamicWorkerVirtualModuleContent): void;
-  deleteVirtualModule(path: string): void;
-  setPackageFile(path: string, source: string): void;
-  deletePackageFile(path: string): void;
-  reset(input: ReactWorkerBuildInput): void;
-  snapshotInput(): ReactWorkerBuildInput;
-  getLastSuccessfulBuild(): ReactWorkerBuildOutput | undefined;
-}
-
-export interface WorkerLoaderBinding {
-  get(
-    id: string,
-    factory: () => Promise<DynamicWorkerLoaderDefinition> | DynamicWorkerLoaderDefinition
-  ): LoadedDynamicWorker;
-  load?(definition: DynamicWorkerLoaderDefinition): LoadedDynamicWorker;
-}
-
-export interface LoadedDynamicWorker {
-  getEntrypoint(): { fetch(request: Request): Promise<Response> | Response };
 }
 
 export interface DynamicWorkerLoaderDefinition extends DynamicWorkerModules {
@@ -151,46 +97,11 @@ export interface DynamicWorkerLoaderDefinition extends DynamicWorkerModules {
   globalOutbound?: Fetcher | null;
 }
 
-export interface SourceCheckResult {
-  ok: boolean;
-  diagnostics: ToolchainDiagnostic[];
-  evidence: ToolchainEvidence[];
+export interface WorkerLoaderBinding {
+  get(id: string, factory: () => DynamicWorkerLoaderDefinition | Promise<DynamicWorkerLoaderDefinition>): LoadedDynamicWorker;
+  load?(definition: DynamicWorkerLoaderDefinition): LoadedDynamicWorker;
 }
 
-// Compatibility aliases for the original prompt. The focused API above is what
-// this spike actually exercises.
-export interface CompileInput {
-  files: Record<string, string>;
-  entry: string;
-}
-
-export interface CompileDiagnostic {
-  source:
-    | "oxc"
-    | "rolldown"
-    | "vite"
-    | "esbuild"
-    | "worker-loader"
-    | "internal";
-  severity: "error" | "warning";
-  message: string;
-  file?: string;
-  line?: number;
-  column?: number;
-  span?: SourceSpan;
-}
-
-export interface CompileOutput {
-  mainModule?: string;
-  modules?: Record<string, DynamicWorkerModuleContent>;
-  code?: string;
-  diagnostics: CompileDiagnostic[];
-  toolchain: {
-    parser?: string;
-    transformer?: string;
-    bundler?: string;
-    linter?: string;
-    formatter?: string;
-    loaderTarget?: "worker-loader" | "plain-js" | "unknown";
-  };
+export interface LoadedDynamicWorker {
+  getEntrypoint(): { fetch(request: Request): Promise<Response> | Response };
 }
