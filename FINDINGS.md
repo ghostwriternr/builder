@@ -295,53 +295,87 @@ Current limitation: reachability is still recomputed conservatively each compile
 
 ### Session cache measurement signals
 
-`tests/workers/measurements/session-cache-measurements.test.ts` records local workerd/Vitest timing signals for the session cache. It compares cold `compileDynamicWorker()` runs with session initial compiles, cached leaf updates, entrypoint graph updates, and package snapshot updates. These are directional local signals, not production benchmarks.
+`tests/workers/measurements/session-cache-measurements.test.ts` records local workerd/Vitest timing signals for the session cache. It compares cold `compileDynamicWorker()` runs with session initial compiles, cached leaf updates, unrelated virtual module updates, entrypoint graph updates, active package updates, unused package snapshot updates, and active package candidate insertion. These are directional local signals, not production benchmarks. The assertions are cache-metadata guardrails; they do not require timing ratios.
 
-One local run on 2026-07-01 reported:
+One local run on 2026-07-02 reported these representative counters:
 
 ```json
 {
   "graphs": [
     {
       "moduleCount": 10,
-      "fullCompileMs": 282,
+      "fullCompileMs": 286,
       "sessionInitialMs": 36,
-      "sessionLeafUpdateMs": 5,
+      "sessionLeafUpdateMs": 2,
+      "sessionUnrelatedVirtualUpdateMs": 1,
       "sessionGraphUpdateMs": 24,
-      "leafUpdateVsFullRatio": 0.018,
-      "graphUpdateVsFullRatio": 0.085,
-      "initialGraphScanned": 11,
-      "leafGraphScanned": ["src/module-9.tsx"],
-      "leafGraphReusedCount": 10,
-      "graphUpdateGraphScanned": ["src/extra.tsx", "src/index.tsx"],
-      "graphUpdateGraphReusedCount": 10
+      "leafUpdateCache": {
+        "transformedCount": 1,
+        "reusedCount": 10,
+        "graphScannedCount": 1,
+        "graphReusedCount": 10
+      },
+      "unrelatedVirtualUpdateCache": {
+        "transformedModules": ["unused/virtual.js"],
+        "reusedCount": 11,
+        "graphScannedCount": 0,
+        "graphReusedCount": 11
+      },
+      "graphUpdateCache": {
+        "transformedModules": ["src/extra.js", "src/index.js"],
+        "reusedCount": 11,
+        "graphScannedCount": 2,
+        "graphReusedCount": 10
+      }
     },
     {
       "moduleCount": 50,
-      "fullCompileMs": 86,
-      "sessionInitialMs": 74,
-      "sessionLeafUpdateMs": 2,
-      "sessionGraphUpdateMs": 24,
-      "leafUpdateVsFullRatio": 0.023,
-      "graphUpdateVsFullRatio": 0.279,
-      "initialGraphScanned": 51,
-      "leafGraphScanned": ["src/module-49.tsx"],
-      "leafGraphReusedCount": 50,
-      "graphUpdateGraphScanned": ["src/extra.tsx", "src/index.tsx"],
-      "graphUpdateGraphReusedCount": 50
+      "fullCompileMs": 117,
+      "sessionInitialMs": 81,
+      "sessionLeafUpdateMs": 1,
+      "sessionUnrelatedVirtualUpdateMs": 1,
+      "sessionGraphUpdateMs": 26,
+      "leafUpdateCache": {
+        "transformedCount": 1,
+        "reusedCount": 50,
+        "graphScannedCount": 1,
+        "graphReusedCount": 50
+      },
+      "unrelatedVirtualUpdateCache": {
+        "transformedModules": ["unused/virtual.js"],
+        "reusedCount": 51,
+        "graphScannedCount": 0,
+        "graphReusedCount": 51
+      },
+      "graphUpdateCache": {
+        "transformedModules": ["src/extra.js", "src/index.js"],
+        "reusedCount": 51,
+        "graphScannedCount": 2,
+        "graphReusedCount": 50
+      }
     }
   ],
   "packageSnapshot": {
-    "initialMs": 1,
-    "unchangedPackageMs": 2,
-    "packageUpdateMs": 1,
-    "packageUpdateCache": {
-      "transformedModules": [],
+    "activePackageUpdate": {
+      "transformedCount": 0,
       "reusedModules": ["src/index.js"],
-      "droppedModules": [],
-      "graphRebuilt": true,
-      "graphScannedModules": [],
-      "graphReusedModules": ["src/index.tsx"],
+      "graphScannedCount": 0,
+      "graphReusedCount": 1,
+      "packageGraphRebuilt": true
+    },
+    "unusedPackageUpdate": {
+      "transformedCount": 0,
+      "reusedModules": ["src/index.js"],
+      "graphScannedCount": 0,
+      "graphReusedCount": 1,
+      "packageGraphRebuilt": false
+    },
+    "candidateInsertion": {
+      "transformedCount": 0,
+      "reusedModules": ["src/index.js"],
+      "droppedModules": ["node_modules/candidate-pkg/dep.mjs"],
+      "graphScannedCount": 0,
+      "graphReusedCount": 1,
       "packageGraphRebuilt": true
     }
   }
@@ -353,7 +387,9 @@ Interpretation caveats:
 - The 10-module cold full compile includes first observed parser/transform initialization in this test isolate, so it is not directly comparable to later warm 50-module measurements.
 - The test asserts correctness and cache metadata, but it intentionally does not enforce timing ratios because local workerd/Vitest timing is noisy.
 - Leaf updates reuse unchanged transformed modules and unchanged graph specifier scans while still recomputing reachability and emitting complete Worker Loader module maps.
-- Package snapshot updates reuse local transformed modules and rebuild only the package graph.
+- Unrelated virtual module additions emit the new virtual module while reusing all unchanged local transforms and graph scans.
+- Active package updates reuse local transformed modules and rebuild the package graph; unused package snapshot updates keep the active package graph cached.
+- Candidate insertion inside an active package root rebuilds the package graph and drops the previously selected lower-priority package module.
 
 ### Dynamic Worker build IDs
 

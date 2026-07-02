@@ -58,6 +58,27 @@ export function createPackageSessionMeasurementInput(): ReactWorkerBuildInput {
     packageFiles: {
       "node_modules/pkg/package.json": JSON.stringify({ name: "pkg", exports: "./index.js" }),
       "node_modules/pkg/index.js": `export const label = "initial";`,
+      "node_modules/unused/package.json": JSON.stringify({ name: "unused", exports: "./index.js" }),
+      "node_modules/unused/index.js": `export const label = "unused";`,
+    },
+  };
+}
+
+export function createCandidatePackageSessionMeasurementInput(): ReactWorkerBuildInput {
+  return {
+    entrypoint: "src/index.tsx",
+    files: {
+      "src/index.tsx": `
+        import { label } from "candidate-pkg";
+        export default { async fetch() { return new Response(label) } }
+      `,
+    },
+    packageFiles: {
+      "node_modules/candidate-pkg/package.json": JSON.stringify({ name: "candidate-pkg", exports: "./index.js" }),
+      "node_modules/candidate-pkg/index.js": `import { label } from "./dep";
+export { label };
+`,
+      "node_modules/candidate-pkg/dep.mjs": `export const label = "mjs dependency";`,
     },
   };
 }
@@ -67,10 +88,12 @@ export function summarizeSessionMeasurements(
   full: TimedValue<unknown>,
   initial: TimedValue<unknown>,
   leafUpdate: TimedValue<unknown>,
+  virtualUpdate: TimedValue<unknown>,
   graphUpdate: TimedValue<unknown>,
 ): Record<string, unknown> {
   const initialCache = sessionCache(initial.value);
   const leafCache = sessionCache(leafUpdate.value);
+  const virtualCache = sessionCache(virtualUpdate.value);
   const graphCache = sessionCache(graphUpdate.value);
 
   return {
@@ -78,19 +101,61 @@ export function summarizeSessionMeasurements(
     fullCompileMs: full.durationMs,
     sessionInitialMs: initial.durationMs,
     sessionLeafUpdateMs: leafUpdate.durationMs,
+    sessionUnrelatedVirtualUpdateMs: virtualUpdate.durationMs,
     sessionGraphUpdateMs: graphUpdate.durationMs,
     leafUpdateVsFullRatio: ratio(leafUpdate.durationMs, full.durationMs),
+    unrelatedVirtualUpdateVsFullRatio: ratio(virtualUpdate.durationMs, full.durationMs),
     graphUpdateVsFullRatio: ratio(graphUpdate.durationMs, full.durationMs),
-    initialGraphScanned: initialCache?.graphScannedModules?.length,
-    leafGraphScanned: leafCache?.graphScannedModules,
-    leafGraphReusedCount: leafCache?.graphReusedModules?.length,
-    graphUpdateGraphScanned: graphCache?.graphScannedModules,
-    graphUpdateGraphReusedCount: graphCache?.graphReusedModules?.length,
+    initialCache: summarizeCache(initialCache),
+    leafUpdateCache: summarizeCache(leafCache),
+    unrelatedVirtualUpdateCache: summarizeCache(virtualCache),
+    graphUpdateCache: summarizeCache(graphCache),
   };
 }
 
-function sessionCache(value: unknown): { graphScannedModules?: string[]; graphReusedModules?: string[] } | undefined {
-  return (value as { session?: { cache?: { graphScannedModules?: string[]; graphReusedModules?: string[] } } }).session?.cache;
+export function summarizeSessionMeasurementSteps(steps: Record<string, TimedValue<unknown>>): Array<Record<string, unknown>> {
+  return Object.entries(steps).map(([label, timed]) => {
+    const cache = sessionCache(timed.value);
+    return {
+      label,
+      durationMs: timed.durationMs,
+      moduleCount: moduleCount(timed.value),
+      ...summarizeCache(cache),
+    };
+  });
+}
+
+function sessionCache(value: unknown): SessionCacheSummary | undefined {
+  return (value as { session?: { cache?: SessionCacheSummary } }).session?.cache;
+}
+
+interface SessionCacheSummary {
+  transformedModules?: string[];
+  reusedModules?: string[];
+  droppedModules?: string[];
+  graphScannedModules?: string[];
+  graphReusedModules?: string[];
+  packageGraphRebuilt?: boolean;
+}
+
+function summarizeCache(cache: SessionCacheSummary | undefined): Record<string, unknown> {
+  return {
+    transformedModules: cache?.transformedModules,
+    transformedCount: cache?.transformedModules?.length,
+    reusedModules: cache?.reusedModules,
+    reusedCount: cache?.reusedModules?.length,
+    droppedModules: cache?.droppedModules,
+    graphScannedModules: cache?.graphScannedModules,
+    graphScannedCount: cache?.graphScannedModules?.length,
+    graphReusedModules: cache?.graphReusedModules,
+    graphReusedCount: cache?.graphReusedModules?.length,
+    packageGraphRebuilt: cache?.packageGraphRebuilt,
+  };
+}
+
+function moduleCount(value: unknown): number | undefined {
+  const modules = (value as { modules?: Record<string, unknown> }).modules;
+  return modules ? Object.keys(modules).length : undefined;
 }
 
 function entrypointForModules(moduleCount: number): string {
