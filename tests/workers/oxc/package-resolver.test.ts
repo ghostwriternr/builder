@@ -170,6 +170,133 @@ export default { fetch() { return new Response(local + message); } };
     );
   });
 
+  it.each([
+    ["line comment", `// require("./missing.cjs")\nexports.message = "line comment ignored";\n`, "line comment ignored"],
+    ["block comment", `/* require("./missing.cjs") */\nexports.message = "block comment ignored";\n`, "block comment ignored"],
+    ["string literal", `const text = 'require("./missing.cjs")';\nexports.message = text;\n`, `require("./missing.cjs")`],
+    ["template literal", "const text = `require(\"./missing.cjs\")`;\nexports.message = text;\n", `require("./missing.cjs")`],
+    ["template expression string", "const text = `${'require(\"./missing.cjs\")'}`;\nexports.message = text;\n", `require("./missing.cjs")`],
+    ["template expression comment", "const text = `${/* require(\"./missing.cjs\") */ 'comment ignored'}`;\nexports.message = text;\n", "comment ignored"],
+    ["regex literal", `const pattern = /require("missing-pkg")/;\nexports.message = pattern.source;\n`, `require("missing-pkg")`],
+    ["regex literal after return", `exports.message = (() => {\n  return /require("missing-pkg")/.source;\n})();\n`, `require("missing-pkg")`],
+  ])("ignores fake require calls in CJS package %s text", async (_caseName, packageSource, expected) => {
+    const build = await compileDynamicWorker({
+      entrypoint: "src/index.ts",
+      files: {
+        "src/index.ts": `import cjsPkg from "masked-cjs";
+export default { fetch() { return new Response(cjsPkg.message); } };
+`
+      },
+      packageFiles: {
+        "node_modules/masked-cjs/package.json": JSON.stringify({ name: "masked-cjs", main: "index.cjs" }),
+        "node_modules/masked-cjs/index.cjs": packageSource,
+      }
+    });
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+
+    const worker = loadDynamicWorker(workerEnv.LOADER, `pkg-cjs-mask-${id++}`, build, {
+      compatibilityDate: "2026-06-30"
+    });
+    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
+    expect(await response.text()).toBe(expected);
+  });
+
+  it("scans real require calls inside template expressions", async () => {
+    const build = await compileDynamicWorker({
+      entrypoint: "src/index.ts",
+      files: {
+        "src/index.ts": `import cjsPkg from "template-expression-cjs";
+export default { fetch() { return new Response(cjsPkg.message); } };
+`
+      },
+      packageFiles: {
+        "node_modules/template-expression-cjs/package.json": JSON.stringify({ name: "template-expression-cjs", main: "index.cjs" }),
+        "node_modules/template-expression-cjs/index.cjs": "const message = `${require(\"./dep.cjs\").message}`;\nexports.message = message;\n",
+        "node_modules/template-expression-cjs/dep.cjs": `exports.message = "template expression dependency";\n`,
+      }
+    });
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.modules?.["node_modules/template-expression-cjs/index.cjs"]).toEqual({
+      cjs: "const message = `${require(\"/node_modules/template-expression-cjs/dep.cjs\").message}`;\nexports.message = message;\n"
+    });
+
+    const worker = loadDynamicWorker(workerEnv.LOADER, `pkg-cjs-template-expression-${id++}`, build, {
+      compatibilityDate: "2026-06-30"
+    });
+    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
+    expect(await response.text()).toBe("template expression dependency");
+  });
+
+  it("does not classify ESM package modules as CJS because of fake exports text", async () => {
+    const build = await compileDynamicWorker({
+      entrypoint: "src/index.ts",
+      files: {
+        "src/index.ts": `import { message } from "esm-with-fake-exports";
+export default { fetch() { return new Response(message); } };
+`
+      },
+      packageFiles: {
+        "node_modules/esm-with-fake-exports/package.json": JSON.stringify({ name: "esm-with-fake-exports", exports: "./index.js" }),
+        "node_modules/esm-with-fake-exports/index.js": `// exports.message = "fake";
+const text = "module.exports = fake";
+import { suffix } from "./dep.js";
+export const message = "esm" + suffix;
+`,
+        "node_modules/esm-with-fake-exports/dep.js": `export const suffix = " exports preserved";\n`,
+      }
+    });
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.modules?.["node_modules/esm-with-fake-exports/index.js"]).toEqual({
+      js: `// exports.message = "fake";
+const text = "module.exports = fake";
+import { suffix } from "./dep.js";
+export const message = "esm" + suffix;
+`
+    });
+
+    const worker = loadDynamicWorker(workerEnv.LOADER, `pkg-esm-fake-exports-${id++}`, build, {
+      compatibilityDate: "2026-06-30"
+    });
+    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
+    expect(await response.text()).toBe("esm exports preserved");
+  });
+
+  it("does not classify ESM package modules as CJS because of fake require text", async () => {
+    const build = await compileDynamicWorker({
+      entrypoint: "src/index.ts",
+      files: {
+        "src/index.ts": `import { message } from "esm-with-fake-require";
+export default { fetch() { return new Response(message); } };
+`
+      },
+      packageFiles: {
+        "node_modules/esm-with-fake-require/package.json": JSON.stringify({ name: "esm-with-fake-require", exports: "./index.js" }),
+        "node_modules/esm-with-fake-require/index.js": `// require("./missing.cjs")
+import { suffix } from "./dep.js";
+export const message = "esm" + suffix;
+`,
+        "node_modules/esm-with-fake-require/dep.js": `export const suffix = " preserved";\n`,
+      }
+    });
+
+    expect(build.ok, JSON.stringify(build.diagnostics, null, 2)).toBe(true);
+    expect(build.modules?.["node_modules/esm-with-fake-require/index.js"]).toEqual({
+      js: `// require("./missing.cjs")
+import { suffix } from "./dep.js";
+export const message = "esm" + suffix;
+`
+    });
+
+    const worker = loadDynamicWorker(workerEnv.LOADER, `pkg-esm-fake-require-${id++}`, build, {
+      compatibilityDate: "2026-06-30"
+    });
+    const response = await worker.getEntrypoint().fetch(new Request("http://worker/"));
+    expect(await response.text()).toBe("esm preserved");
+  });
+
   it("rewrites literal CJS package requires to explicit Worker Loader paths", async () => {
     const build = await compileDynamicWorker({
       entrypoint: "src/index.ts",

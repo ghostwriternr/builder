@@ -112,7 +112,8 @@ export async function buildPackageModuleGraph(
       continue;
     }
 
-    const isCjs = modulePath.endsWith(".cjs") || /\bmodule\.exports\b|\bexports\./.test(source) || /\brequire\s*\(/.test(source);
+    const maskedSource = maskNonCodeForRequireScanner(source);
+    const isCjs = modulePath.endsWith(".cjs") || /\bmodule\.exports\b|\bexports\./.test(maskedSource) || hasCodeRequireCall(source);
     if (isCjs) {
       const literalRequires = scanLiteralRequires(source);
       const dynamicRequire = firstDynamicRequire(source, literalRequires);
@@ -246,9 +247,11 @@ function pickConditionalTarget(target: unknown): string | undefined {
 
 function scanLiteralRequires(source: string): CjsRequireSpecifier[] {
   const requires: CjsRequireSpecifier[] = [];
+  const codeMask = createRequireScannerCodeMask(source);
   const pattern = /\brequire\s*\(\s*(["'])([^"']+)\1\s*\)/g;
   for (const match of source.matchAll(pattern)) {
     if (match.index === undefined || match[1] === undefined || match[2] === undefined) continue;
+    if (!codeMask[match.index]) continue;
     const quoted = `${match[1]}${match[2]}${match[1]}`;
     const start = match.index + match[0].lastIndexOf(quoted);
     requires.push({ specifier: match[2], start, end: start + quoted.length, callStart: match.index, callEnd: match.index + match[0].length });
@@ -256,16 +259,206 @@ function scanLiteralRequires(source: string): CjsRequireSpecifier[] {
   return requires;
 }
 
+function hasCodeRequireCall(source: string): boolean {
+  return /\brequire\s*\(/g.test(maskNonCodeForRequireScanner(source));
+}
+
 function firstDynamicRequire(source: string, literalRequires = scanLiteralRequires(source)): CjsRequireCall | undefined {
+  const codeMask = createRequireScannerCodeMask(source);
   const pattern = /\brequire\s*\(/g;
   for (const match of source.matchAll(pattern)) {
     if (match.index === undefined) continue;
+    if (!codeMask[match.index]) continue;
     if (!literalRequires.some((literal) => literal.callStart === match.index)) {
       return { callStart: match.index, callEnd: match.index + match[0].length };
     }
   }
   return undefined;
 }
+
+function createRequireScannerCodeMask(source: string): boolean[] {
+  const mask = Array<boolean>(source.length).fill(true);
+  markRequireScannerNonCode(mask, source, 0, source.length);
+  return mask;
+}
+
+function markRequireScannerNonCode(mask: boolean[], source: string, start: number, end: number): void {
+  for (let index = start; index < end;) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (char === "/" && next === "/") {
+      const commentEnd = source.indexOf("\n", index + 2);
+      index = markNonCode(mask, index, commentEnd === -1 || commentEnd > end ? end : commentEnd);
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      const commentEnd = source.indexOf("*/", index + 2);
+      index = markNonCode(mask, index, commentEnd === -1 || commentEnd + 2 > end ? end : commentEnd + 2);
+      continue;
+    }
+
+    if (char === "\"" || char === "'") {
+      const stringEnd = findDelimitedEnd(source, index, char);
+      index = markNonCode(mask, index, stringEnd === -1 || stringEnd + 1 > end ? end : stringEnd + 1);
+      continue;
+    }
+
+    if (char === "`") {
+      index = markTemplateLiteralNonCode(mask, source, index);
+      continue;
+    }
+
+    if (char === "/" && isLikelyRegexStart(source, index)) {
+      const regexEnd = findRegexEnd(source, index);
+      index = markNonCode(mask, index, regexEnd === -1 || regexEnd + 1 > end ? end : regexEnd + 1);
+      continue;
+    }
+
+    index++;
+  }
+}
+
+function maskNonCodeForRequireScanner(source: string): string {
+  const mask = createRequireScannerCodeMask(source);
+  let output = "";
+  for (let index = 0; index < source.length; index++) output += mask[index] ? source[index] : " ";
+  return output;
+}
+
+function markNonCode(mask: boolean[], start: number, end: number): number {
+  for (let index = start; index < end; index++) mask[index] = false;
+  return end;
+}
+
+function markTemplateLiteralNonCode(mask: boolean[], source: string, start: number): number {
+  mask[start] = false;
+  for (let index = start + 1; index < source.length; index++) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (char === "\\") {
+      index++;
+      continue;
+    }
+    if (char === "`") {
+      mask[index] = false;
+      return index + 1;
+    }
+    if (char === "$" && next === "{") {
+      mask[index] = false;
+      mask[index + 1] = false;
+      index += 2;
+      const expressionEnd = findTemplateExpressionEnd(source, index);
+      if (expressionEnd === -1) return source.length;
+      markRequireScannerNonCode(mask, source, index, expressionEnd);
+      mask[expressionEnd] = false;
+      index = expressionEnd;
+      continue;
+    }
+    mask[index] = false;
+  }
+  return source.length;
+}
+
+function findTemplateExpressionEnd(source: string, start: number): number {
+  let depth = 1;
+  for (let index = start; index < source.length; index++) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (char === "\\") {
+      index++;
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      const end = findDelimitedEnd(source, index, char);
+      if (end === -1) return -1;
+      index = end;
+      continue;
+    }
+    if (char === "`") {
+      index = markTemplateLiteralNonCode(Array<boolean>(source.length).fill(true), source, index) - 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", index + 2);
+      if (end === -1) return -1;
+      index = end;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2);
+      if (end === -1) return -1;
+      index = end + 1;
+      continue;
+    }
+    if (char === "{") depth++;
+    if (char === "}") {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+function findDelimitedEnd(source: string, start: number, delimiter: string): number {
+  for (let index = start + 1; index < source.length; index++) {
+    if (source[index] === "\\") {
+      index++;
+      continue;
+    }
+    if (source[index] === delimiter) return index;
+  }
+  return -1;
+}
+
+function findRegexEnd(source: string, start: number): number {
+  let inCharacterClass = false;
+  for (let index = start + 1; index < source.length; index++) {
+    const char = source[index];
+    if (char === "\\") {
+      index++;
+      continue;
+    }
+    if (char === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (char === "]") {
+      inCharacterClass = false;
+      continue;
+    }
+    if (char === "/" && !inCharacterClass) return index;
+    if (char === "\n" || char === "\r") return -1;
+  }
+  return -1;
+}
+
+function isLikelyRegexStart(source: string, slashIndex: number): boolean {
+  for (let index = slashIndex - 1; index >= 0; index--) {
+    const char = source[index];
+    if (/\s/.test(char)) continue;
+    if ("([{=,:;!&|?+-*~^<>".includes(char)) return true;
+
+    const word = source.slice(0, index + 1).match(/[A-Za-z_$][\w$]*$/)?.[0];
+    return word !== undefined && REGEX_PREFIX_KEYWORDS.has(word);
+  }
+  return true;
+}
+
+const REGEX_PREFIX_KEYWORDS = new Set([
+  "case",
+  "delete",
+  "do",
+  "else",
+  "in",
+  "instanceof",
+  "return",
+  "throw",
+  "typeof",
+  "void",
+  "yield",
+]);
 
 function resolvePackageModuleImport(importerPath: string, specifier: string, packageFiles: Record<string, string>): PackageResolution | undefined {
   if (specifier.startsWith("./") || specifier.startsWith("../")) {
