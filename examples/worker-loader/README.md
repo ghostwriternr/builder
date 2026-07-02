@@ -1,16 +1,17 @@
 # Worker Loader example
 
-This example is proof that `workerd-oxc` output can be loaded manually with Cloudflare Worker Loader / Dynamic Workers.
-
-It is intentionally **not** a core package API. The package does not export Worker Loader helpers, build IDs, module graph tools, bundling, package resolution, or object-module shaping.
+Transforms a TypeScript module with `workerd-oxc` and runs the output as a
+[Dynamic Worker](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/)
+via the Worker Loader binding.
 
 The Worker:
 
-1. creates an initialized Oxc instance with `createOxc()`;
-2. transforms inline TypeScript Worker source;
-3. manually constructs a Worker Loader definition;
-4. calls `env.LOADER.get(id, () => definition)`;
-5. dispatches to the loaded Worker.
+1. calls `createOxc()` and transforms an inline TS source string,
+2. builds a Worker Loader definition by hand,
+3. loads it with `env.LOADER.get(...)` and forwards the request to it.
+
+Loader wiring lives entirely in this example — `workerd-oxc` does not ship
+Worker Loader helpers.
 
 ```sh
 wrangler dev --config examples/worker-loader/wrangler.jsonc
