@@ -211,22 +211,16 @@ This rebuilds `src/wasm/parser.wasm` and `src/wasm/transform.wasm`.
 
 ## Wasm artifacts
 
-The parser and transformer artifacts are committed on purpose. Cloudflare Workers import `.wasm` files as static `WebAssembly.Module` objects, so consumers need those files in the package; fetching or compiling Wasm bytes at runtime is not the model here.
+The parser and transformer `.wasm` files are committed because Workers load them as static `WebAssembly.Module` imports. A git install should work without Rust.
 
-Inspect the current artifacts with:
+For artifact details:
 
 ```sh
 npm run wasm:info
+npm run wasm:check
 ```
 
-That prints size, SHA-256, imports, and ABI exports for each artifact. `npm run wasm:check` enforces the invariants this package relies on: both artifacts must have zero imports and must export the expected pointer/length/result ABI functions.
-
-CI tests artifacts in two phases:
-
-1. test the committed artifacts before rebuilding, so the checked-in package state is known to work;
-2. rebuild artifacts from Rust source on the CI runner and run the full check suite again.
-
-The project does not currently require byte-identical Wasm output across host operating systems or CPU architectures. We have seen macOS/aarch64 and Ubuntu/x64 produce different bytes from the same Rust source and lockfile. Releases should rebuild and pack on the release host rather than relying on cross-host byte identity.
+`wasm:check` verifies the two properties this package depends on: zero imports and the expected ABI exports.
 
 ## Development
 
