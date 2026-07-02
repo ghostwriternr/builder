@@ -82,4 +82,75 @@ export interface SourceMapV3 {
 export interface Oxc {
   parse(input: ParseInput): OxcResult<ParseOutput>;
   transform(input: TransformInput): OxcResult<TransformOutput>;
+  experimentalAnalyze(input: AnalyzeInput): OxcResult<AnalyzeOutput>;
+}
+
+export interface AnalyzeInput {
+  filename: string;
+  source: string;
+  lang?: OxcLanguage;
+  sourceType?: OxcSourceType;
+}
+
+export interface AnalyzeOutput {
+  scopes: ScopeFact[];
+  bindings: BindingFact[];
+  references: ReferenceFact[];
+  unresolved: ReferenceFact[];
+  imports: ImportFact[];
+  exports: ExportFact[];
+  jsxTags: JsxTagFact[];
+}
+
+export interface ScopeFact {
+  id: number;
+  parentId?: number;
+  kind: string;
+  span?: OxcSourceSpan;
+}
+
+export interface BindingFact {
+  id: number;
+  name: string;
+  kind: string;
+  flags: string[];
+  scopeId: number;
+  span: OxcSourceSpan;
+  references: number[];
+  mutated?: boolean;
+  unused?: boolean;
+}
+
+export interface ReferenceFact {
+  id: number;
+  name: string;
+  kind: "identifier" | "type";
+  flags: string[];
+  scopeId: number;
+  bindingId?: number;
+  span: OxcSourceSpan;
+}
+
+export interface ImportFact {
+  source: string;
+  local: string;
+  imported: string | "default" | "namespace";
+  kind: "value" | "type";
+  span: OxcSourceSpan;
+  sourceSpan: OxcSourceSpan;
+}
+
+export interface ExportFact {
+  kind: "named" | "default" | "all";
+  local?: string;
+  exported?: string;
+  source?: string;
+  span: OxcSourceSpan;
+}
+
+export interface JsxTagFact {
+  name: string;
+  kind: "identifier" | "member" | "namespaced";
+  bindingId?: number;
+  span: OxcSourceSpan;
 }

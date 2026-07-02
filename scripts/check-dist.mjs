@@ -6,9 +6,11 @@ const files = [
   "dist/index.d.ts",
   "dist/parser.js",
   "dist/transform.js",
-  "dist/utf8.js",
+  "dist/analyze.js",
+  "dist/diagnostics.js",
   "dist/wasm/parser.wasm",
   "dist/wasm/transform.wasm",
+  "dist/wasm/analyze.wasm",
 ];
 
 const failures = [];
@@ -36,7 +38,11 @@ for (const file of jsFiles) {
 }
 
 const combinedJs = [...jsByFile.values()].join("\n");
-for (const expectedImport of ["./wasm/parser.wasm", "./wasm/transform.wasm"]) {
+for (const expectedImport of [
+  "./wasm/parser.wasm",
+  "./wasm/transform.wasm",
+  "./wasm/analyze.wasm",
+]) {
   if (!combinedJs.includes(expectedImport)) {
     failures.push(`dist JavaScript: missing static wasm import ${expectedImport}`);
   }
@@ -52,7 +58,7 @@ try {
 }
 
 const indexJs = jsByFile.get("dist/index.js") ?? "";
-for (const expectedImport of ["./parser.js", "./transform.js"]) {
+for (const expectedImport of ["./parser.js", "./transform.js", "./analyze.js"]) {
   if (!indexJs.includes(expectedImport)) {
     failures.push(`dist/index.js: missing lazy chunk import ${expectedImport}`);
   }

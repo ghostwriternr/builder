@@ -1,5 +1,13 @@
-export { createOxc, parse, transform } from "./oxc.ts";
+export { createOxc, experimentalAnalyze, parse, transform } from "./oxc.ts";
 export type {
+  AnalyzeInput,
+  AnalyzeOutput,
+  ScopeFact,
+  BindingFact,
+  ReferenceFact,
+  ImportFact,
+  ExportFact,
+  JsxTagFact,
   Oxc,
   OxcDiagnostic,
   OxcJsxOptions,

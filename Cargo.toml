@@ -1,5 +1,5 @@
 [workspace]
-members = ["native/parser", "native/transform"]
+members = ["native/analyze", "native/parser", "native/transform"]
 resolver = "3"
 
 [profile.release]

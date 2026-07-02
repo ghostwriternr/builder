@@ -9,6 +9,10 @@ const artifacts = [
     path: "src/wasm/transform.wasm",
     requiredFunction: "transform",
   },
+  {
+    path: "src/wasm/analyze.wasm",
+    requiredFunction: "analyze",
+  },
 ];
 
 const commonExports = [

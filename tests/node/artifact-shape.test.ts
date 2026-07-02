@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
-function expectZeroImportArtifact(path: string, requiredExport: "parse" | "transform") {
+function expectZeroImportArtifact(path: string, requiredExport: "parse" | "transform" | "analyze") {
   expect(existsSync(path), `${path} should exist`).toBe(true);
   const module = new WebAssembly.Module(readFileSync(path));
 
@@ -31,5 +31,10 @@ describe("direct Oxc wasm artifacts", () => {
   test("transform artifact has a workerd-compatible zero-import ABI shape", () => {
     expect.hasAssertions();
     expectZeroImportArtifact("src/wasm/transform.wasm", "transform");
+  });
+
+  test("analyzer artifact has a workerd-compatible zero-import ABI shape", () => {
+    expect.hasAssertions();
+    expectZeroImportArtifact("src/wasm/analyze.wasm", "analyze");
   });
 });

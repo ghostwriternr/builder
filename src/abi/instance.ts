@@ -32,6 +32,17 @@ export interface TransformAbiExports extends OxcAbiExports {
   ) => number;
 }
 
+export interface AnalyzeAbiExports extends OxcAbiExports {
+  analyze: (
+    filenamePtr: number,
+    filenameLen: number,
+    sourcePtr: number,
+    sourceLen: number,
+    optionsPtr: number,
+    optionsLen: number,
+  ) => number;
+}
+
 export function instantiateAbiModule<T extends OxcAbiExports>(
   module: WebAssembly.Module,
   label: string,

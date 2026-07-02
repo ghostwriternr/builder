@@ -117,6 +117,26 @@ interface TransformOutput {
 }
 ```
 
+### `experimentalAnalyze(input): Promise<OxcResult<AnalyzeOutput>>` / `oxc.experimentalAnalyze(input)`
+
+Experimental. Builds compact per-file semantic facts from Oxc: scopes, bindings, references, unresolved references, imports, exports, and JSX tag facts. This is not a project graph, resolver, linter, type checker, or bundler. IDs are stable only within one result object.
+
+```ts
+const result = await experimentalAnalyze({ filename: "src/app.tsx", source });
+if (result.ok) {
+  result.value.bindings;
+  result.value.references;
+  result.value.jsxTags;
+}
+```
+
+Caveats:
+
+- The experimental API shape may change in minor versions before stabilization.
+- Facts are per-file only.
+- Imports are recorded, not resolved.
+- Spans are JS UTF-16 offsets.
+
 ### Results
 
 Everything returns a discriminated result. Expected failures — syntax errors,

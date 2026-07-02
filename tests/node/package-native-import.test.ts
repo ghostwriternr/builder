@@ -16,6 +16,6 @@ describe("native Node package import", () => {
       { cwd: process.cwd() },
     );
 
-    expect(stdout.trim()).toBe("createOxc,parse,transform");
+    expect(stdout.trim()).toBe("createOxc,experimentalAnalyze,parse,transform");
   });
 });
