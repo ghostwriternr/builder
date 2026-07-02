@@ -5,7 +5,7 @@
 It provides:
 
 - full TS/TSX AST materialization from Oxc inside workerd;
-- an experimental direct Oxc parser ABI that avoids N-API/wasmkernel for parsing;
+- experimental direct Oxc parser and transform ABIs that avoid N-API/wasmkernel;
 - one-file TS/TSX/JSX transformation through Oxc inside workerd;
 - explicit module-map compilation for Dynamic Workers / Worker Loader;
 - Worker Loader definition/loading helpers;
@@ -20,7 +20,7 @@ Cloudflare Workers can import `.wasm` files as precompiled `WebAssembly.Module` 
 
 This package keeps the useful, bounded part of the earlier spike: expose a safe Oxc AST adapter, expose a one-file transform adapter, and bridge explicit output module maps to Dynamic Workers.
 
-The current transform path and stable parser path still instantiate Oxc's WASI/N-API binaries through `@alexbruf/wasmkernel`. The experimental direct parser path is the first step toward a cleaner long-term architecture: a repo-local Oxc Wasm wrapper with a small pointer/length ABI, imported by workerd as a static `WebAssembly.Module`, with no N-API/emnapi host and no runtime Wasm fetch/compile.
+The stable parser and transform paths still instantiate Oxc's WASI/N-API binaries through `@alexbruf/wasmkernel`. The experimental direct paths prove the cleaner long-term architecture: repo-local Oxc Wasm wrappers with a small pointer/length ABI, imported by workerd as static `WebAssembly.Module` objects, with no N-API/emnapi host and no runtime Wasm fetch/compile.
 
 The broad JavaScript ecosystem layer is intentionally left to real bundlers. If you need npm fetching, package resolution, CJS/ESM compatibility, CSS/assets, or arbitrary React app builds today, use a bundler-oriented path such as `@cloudflare/worker-bundler`/esbuild or wait for a workerd-compatible Rolldown backend.
 
@@ -67,7 +67,7 @@ const result = await experimentalParseReactTsxAstDirect("src/component.tsx", `
 `);
 ```
 
-This is intentionally experimental and parser-only. It exists to prove the long-term architecture: `src/wasm/oxc-direct-parser.wasm` is imported as a static `WebAssembly.Module`, exposes a tiny direct ABI, and currently has **zero Wasm imports**. Transform still uses the `wasmkernel` bridge.
+This is intentionally experimental. It exists to prove the long-term architecture: `src/wasm/oxc-direct-parser.wasm` is imported as a static `WebAssembly.Module`, exposes a tiny direct ABI, and currently has **zero Wasm imports**.
 
 Build the direct parser artifact with:
 
@@ -77,7 +77,7 @@ npm run build:direct-parser
 
 ### `transformReactTsx(filename, source, options?)`
 
-Transforms one source file with Oxc inside workerd.
+Transforms one source file with Oxc inside workerd through the current bridge backend.
 
 ```ts
 import { transformReactTsx } from "workerd-oxc";
@@ -92,6 +92,29 @@ if (result.ok) {
 ```
 
 This is a one-file transform. It does not resolve imports or bundle dependencies.
+
+### `experimentalTransformReactTsxDirect(filename, source, options?)`
+
+Transforms one source file through the repo-local direct transform Wasm artifact instead of the `wasmkernel` N-API bridge.
+
+```ts
+import { experimentalTransformReactTsxDirect } from "workerd-oxc";
+
+const result = await experimentalTransformReactTsxDirect("src/component.tsx", `
+  type Props = { label: string };
+  export function Component(props: Props) {
+    return <span>{props.label}</span>;
+  }
+`);
+```
+
+`src/wasm/oxc-direct-transform.wasm` is imported as a static `WebAssembly.Module`, exposes the same small ABI shape as the direct parser, and currently has **zero Wasm imports**. The prototype strips TypeScript, lowers TSX with the automatic JSX runtime, emits a source map, returns structured diagnostics, and recovers after failed transforms. It is still experimental; the stable `transformReactTsx()` API remains on the bridge backend until parity, artifact-size, memory, source-map, and release/provenance checks are stronger.
+
+Build the direct transform artifact with:
+
+```sh
+npm run build:direct-transform
+```
 
 ### `compileDynamicWorkerModules(input)`
 
@@ -157,8 +180,9 @@ String source modules are transformed with Oxc. Object modules are preserved as 
 | Capability | Status |
 | --- | --- |
 | Oxc TS/TSX AST in workerd | Supported |
-| Direct Oxc parser ABI | Experimental parser-only prototype |
-| Oxc one-file transform in workerd | Supported through current bridge |
+| Direct Oxc parser ABI | Experimental prototype, zero-import Wasm artifact |
+| Direct Oxc transform ABI | Experimental prototype, zero-import Wasm artifact |
+| Oxc one-file transform in workerd | Supported through current bridge; direct backend experimental |
 | Explicit Dynamic Worker module maps | Supported |
 | Worker Loader build IDs | Supported |
 | npm fetching | Not supported |
@@ -173,6 +197,7 @@ String source modules are transformed with Oxc. Object modules are preserved as 
 
 ```sh
 npm run build:direct-parser
+npm run build:direct-transform
 npm run typecheck
 npm test
 npm run test:node

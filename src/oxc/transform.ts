@@ -1,5 +1,6 @@
-import { diagnostic, evidence, stringifyCause } from "../diagnostics.ts";
+import { diagnostic, evidence, sourceLocationAtOffset, stringifyCause } from "../diagnostics.ts";
 import type { ToolchainDiagnostic, ToolchainEvidence, TransformOptions, TransformResult } from "../types.ts";
+import type { DirectTransformDiagnostic } from "./direct-transform-runtime.ts";
 import { getOxcTransformer } from "./runtime.ts";
 
 export async function transformReactTsx(filename: string, source: string, options: TransformOptions = {}): Promise<TransformResult> {
@@ -53,6 +54,52 @@ export async function transformReactTsx(filename: string, source: string, option
   }
 }
 
+export async function experimentalTransformReactTsxDirect(filename: string, source: string, options: TransformOptions = {}): Promise<TransformResult> {
+  const events: ToolchainEvidence[] = [];
+  const importStarted = performance.now();
+
+  try {
+    const { getDirectTransformer } = await import("./direct-transform-runtime.ts");
+    await getDirectTransformer();
+    events.push(evidence("oxc-transform", "import", true, importStarted, "instantiated oxc-transform wasm through direct ABI"));
+  } catch (error) {
+    events.push(evidence("oxc-transform", "import", false, importStarted));
+    return {
+      ok: false,
+      diagnostics: [diagnostic("oxc-transform", "import-failed", "Could not initialize Oxc direct transform in workerd.", error)],
+      evidence: events,
+    };
+  }
+
+  const transformStarted = performance.now();
+  try {
+    const { transformWithDirectTransformer } = await import("./direct-transform-runtime.ts");
+    const result = await transformWithDirectTransformer(filename, source, transformOptions(filename, options));
+    const directDiagnostics = collectArrayLike(result.diagnostics);
+
+    if (result.ok !== true || typeof result.code !== "string") {
+      events.push(evidence("oxc-transform", "transform", false, transformStarted, `${directDiagnostics.length} direct transform errors`));
+      return {
+        ok: false,
+        diagnostics: directDiagnostics.length > 0
+          ? directDiagnostics.map((directDiagnostic) => directTransformDiagnostic(filename, source, directDiagnostic))
+          : [diagnostic("oxc-transform", "transform-failed", "Oxc direct transform failed without structured diagnostics.")],
+        evidence: events,
+      };
+    }
+
+    events.push(evidence("oxc-transform", "transform", true, transformStarted, `transformed ${filename} through direct ABI`));
+    return { ok: true, code: result.code, map: result.map, diagnostics: [], evidence: events };
+  } catch (error) {
+    events.push(evidence("oxc-transform", "transform", false, transformStarted));
+    return {
+      ok: false,
+      diagnostics: [diagnostic("oxc-transform", "transform-failed", "Oxc direct transform failed in workerd.", error)],
+      evidence: events,
+    };
+  }
+}
+
 function transformOptions(filename: string, options: TransformOptions): Record<string, unknown> {
   return {
     lang: languageForFilename(filename),
@@ -89,6 +136,49 @@ function transformErrorDiagnostic(filename: string, error: unknown): ToolchainDi
     file: filename,
     cause: stringifyCause(error),
   };
+}
+
+function directTransformDiagnostic(filename: string, source: string, value: unknown): ToolchainDiagnostic {
+  const direct = value as DirectTransformDiagnostic;
+  const start = typeof direct.start === "number" ? byteOffsetToStringOffset(source, direct.start) : undefined;
+  const end = typeof direct.end === "number" ? byteOffsetToStringOffset(source, direct.end) : undefined;
+  const location = start === undefined ? undefined : sourceLocationAtOffset(source, start);
+  return {
+    tool: "oxc-transform",
+    kind: "transform-failed",
+    severity: direct.severity === "warning" ? "warning" : "error",
+    message: typeof direct.message === "string" ? direct.message : String(value),
+    file: typeof direct.file === "string" && direct.file.length > 0 ? direct.file : filename,
+    line: location?.line,
+    column: location?.column,
+    span: start !== undefined && end !== undefined
+      ? { start, end }
+      : undefined,
+  };
+}
+
+function byteOffsetToStringOffset(source: string, byteOffset: number): number {
+  if (!Number.isFinite(byteOffset)) return 0;
+  const target = Math.max(0, Math.trunc(byteOffset));
+  let bytes = 0;
+
+  for (let index = 0; index < source.length;) {
+    if (bytes >= target) return index;
+    const codePoint = source.codePointAt(index) ?? 0;
+    const width = utf8ByteLength(codePoint);
+    if (bytes + width > target) return index;
+    bytes += width;
+    index += codePoint > 0xffff ? 2 : 1;
+  }
+
+  return source.length;
+}
+
+function utf8ByteLength(codePoint: number): number {
+  if (codePoint <= 0x7f) return 1;
+  if (codePoint <= 0x7ff) return 2;
+  if (codePoint <= 0xffff) return 3;
+  return 4;
 }
 
 function collectArrayLike(value: unknown): unknown[] {

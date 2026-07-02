@@ -1,0 +1,22 @@
+[package]
+name = "workerd_oxc_direct_transform"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[dependencies]
+oxc = { version = "0.138.0", features = ["full"] }
+oxc_diagnostics = "0.138.0"
+oxc_span = "0.138.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -16,6 +16,7 @@ describe("native Node package import", () => {
       "compileDynamicWorkerModules",
       "dynamicWorkerBuildId",
       "experimentalParseReactTsxAstDirect",
+      "experimentalTransformReactTsxDirect",
       "hashDynamicWorkerBuild",
       "loadDynamicWorker",
       "parseReactTsxAst",

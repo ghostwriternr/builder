@@ -8,6 +8,7 @@ describe("public package shape", () => {
       "compileDynamicWorkerModules",
       "dynamicWorkerBuildId",
       "experimentalParseReactTsxAstDirect",
+      "experimentalTransformReactTsxDirect",
       "hashDynamicWorkerBuild",
       "loadDynamicWorker",
       "parseReactTsxAst",
