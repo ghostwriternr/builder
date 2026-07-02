@@ -28,6 +28,7 @@ interface LocalModuleCacheEntry {
   outputPath: string;
   content: DynamicWorkerModuleContent;
   packageImports: string[];
+  virtualImports: string[];
 }
 
 interface VirtualModuleCacheEntry {
@@ -35,6 +36,7 @@ interface VirtualModuleCacheEntry {
   outputPath: string;
   content: DynamicWorkerModuleContent;
   packageImports: string[];
+  virtualImports: string[];
 }
 
 interface PackageGraphCacheEntry {
@@ -238,14 +240,10 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
   const virtualModules = normalizedVirtualModules.modules;
   const normalizedPackageFiles = input.packageFiles ? normalizePackageFilesForOxc(input.packageFiles) : undefined;
   const graphInput = normalizedPackageFiles ? { ...input, packageFiles: normalizedPackageFiles } : input;
-  const virtualResolutionKey = JSON.stringify(Object.entries(virtualModules).map(([name, module]) => [name, module.outputPath]).sort());
-  const packageResolutionKey = JSON.stringify(Object.entries(normalizedPackageFiles ?? {}).filter(([path]) => path.endsWith("/package.json")).sort());
   const jsxKey = JSON.stringify(input.jsx ?? {});
-  const localContextKey = JSON.stringify({ jsxKey, virtualResolutionKey, packageResolutionKey });
-  const graphScanContextKey = JSON.stringify({ virtualResolutionKey, packageResolutionKey });
   const nextGraphScans = new Map<string, GraphScanCacheEntry>();
   const scanForLocalGraph = (filename: string, source: string): ModuleSpecifier[] => {
-    const cacheKey = JSON.stringify({ filename, sourceHash: stableHash(source), graphScanContextKey });
+    const cacheKey = JSON.stringify({ filename, source });
     const cached = previousCache.graphScans.get(filename);
     if (cached?.cacheKey === cacheKey) {
       graphReusedModules.add(filename);
@@ -280,8 +278,8 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
 
   try {
     for (const module of graph.modules) {
-      const cacheKey = JSON.stringify({ source: module.source, localContextKey });
       const cached = previousCache.localModules.get(module.inputPath);
+      const cacheKey = localModuleCacheKey(module.source, jsxKey, cached, virtualModules, normalizedPackageFiles);
       if (cached?.cacheKey === cacheKey && cached.outputPath === module.outputPath) {
         modules[module.outputPath] = cloneModuleContent(cached.content);
         nextCache.localModules.set(module.inputPath, cloneLocalCacheEntry(cached));
@@ -321,7 +319,8 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         cacheKey,
         outputPath: module.outputPath,
         content: processed.code,
-        packageImports: processed.packageImports
+        packageImports: processed.packageImports,
+        virtualImports: processed.virtualImports
       });
       nextCache.outputPaths.add(module.outputPath);
       transformedModules.add(module.outputPath);
@@ -334,8 +333,8 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         continue;
       }
 
-      const cacheKey = JSON.stringify({ js: virtualModule.js, virtualResolutionKey, packageResolutionKey });
       const cached = previousCache.virtualModules.get(name);
+      const cacheKey = virtualModuleCacheKey(virtualModule.js, cached, virtualModules, normalizedPackageFiles);
       if (cached?.cacheKey === cacheKey && cached.outputPath === virtualModule.outputPath) {
         modules[virtualModule.outputPath] = cloneModuleContent(cached.content);
         nextCache.virtualModules.set(name, cloneVirtualCacheEntry(cached));
@@ -358,7 +357,8 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
         cacheKey,
         outputPath: virtualModule.outputPath,
         content,
-        packageImports: processed.packageImports
+        packageImports: processed.packageImports,
+        virtualImports: processed.virtualImports
       });
       nextCache.outputPaths.add(virtualModule.outputPath);
       transformedModules.add(virtualModule.outputPath);
@@ -366,9 +366,9 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
 
     const packageImportList = Array.from(packageImports).sort();
     if (normalizedPackageFiles && packageImportList.length > 0) {
-      const packageCacheKey = JSON.stringify({ packageImportList, packageFiles: Object.entries(normalizedPackageFiles).sort() });
       const cachedPackageGraph = previousCache.packageGraph;
-      if (cachedPackageGraph?.cacheKey === packageCacheKey) {
+      const cachedPackageCacheKey = packageGraphCacheKey(packageImportList, normalizedPackageFiles, cachedPackageGraph?.modules);
+      if (cachedPackageGraph?.cacheKey === cachedPackageCacheKey) {
         const collision = Object.keys(cachedPackageGraph.modules).find((key) => modules[key] !== undefined);
         if (collision !== undefined) {
           diagnostics.push(diagnostic("internal", "transform-failed", `Package module collision would overwrite existing module output: ${collision}`));
@@ -393,7 +393,10 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
           return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
         }
         Object.assign(modules, cloneModuleMap(packageGraph.modules));
-        nextCache.packageGraph = { cacheKey: packageCacheKey, modules: cloneModuleMap(packageGraph.modules) };
+        nextCache.packageGraph = {
+          cacheKey: packageGraphCacheKey(packageImportList, normalizedPackageFiles, packageGraph.modules),
+          modules: cloneModuleMap(packageGraph.modules)
+        };
       }
       for (const key of Object.keys(nextCache.packageGraph.modules)) nextCache.outputPaths.add(key);
     } else {
@@ -428,6 +431,88 @@ async function compileWithCache(input: ReactWorkerBuildInput, previousCache: Com
     diagnostics.push(diagnostic("oxc-transform", "transform-failed", "Oxc transform imported but failed during cached session compile.", error));
     return failedCompile(diagnostics, events, previousCache, transformedModules, reusedModules, graphScannedModules, graphReusedModules, packageGraphRebuilt);
   }
+}
+
+function packageGraphCacheKey(
+  packageImportList: string[],
+  packageFiles: Record<string, string>,
+  packageModules?: Record<string, DynamicWorkerModuleContent>
+): string {
+  const activePackageRoots = new Set<string>();
+  for (const specifier of packageImportList) {
+    const packageName = packageNameFromSpecifier(specifier);
+    if (packageName) activePackageRoots.add(`node_modules/${packageName}`);
+  }
+  for (const moduleKey of Object.keys(packageModules ?? {})) {
+    const packageName = packageNameFromModulePath(moduleKey);
+    if (packageName) activePackageRoots.add(`node_modules/${packageName}`);
+  }
+
+  const relevantKeys = Object.keys(packageFiles)
+    .filter((key) => [...activePackageRoots].some((root) => key === root || key.startsWith(`${root}/`)))
+    .sort();
+  return JSON.stringify({
+    packageImportList,
+    packageFiles: relevantKeys.map((key) => [key, packageFiles[key]])
+  });
+}
+
+function packageNameFromSpecifier(specifier: string): string | undefined {
+  if (specifier.startsWith(".") || specifier.startsWith("/") || specifier.startsWith("cloudflare:")) return undefined;
+  const parts = specifier.split("/");
+  return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+function packageNameFromModulePath(path: string): string | undefined {
+  const parts = path.split("/");
+  if (parts[0] !== "node_modules") return undefined;
+  return parts[1]?.startsWith("@") ? `${parts[1]}/${parts[2]}` : parts[1];
+}
+
+function localModuleCacheKey(
+  source: string,
+  jsxKey: string,
+  cached: LocalModuleCacheEntry | undefined,
+  virtualModules: Record<string, { outputPath: string }>,
+  packageFiles?: Record<string, string>
+): string {
+  return JSON.stringify({
+    source,
+    jsxKey,
+    virtualResolution: virtualResolutionFingerprint(cached?.virtualImports ?? [], virtualModules),
+    packageResolution: packageResolutionFingerprint(cached?.packageImports ?? [], packageFiles)
+  });
+}
+
+function virtualModuleCacheKey(
+  js: string,
+  cached: VirtualModuleCacheEntry | undefined,
+  virtualModules: Record<string, { outputPath: string }>,
+  packageFiles?: Record<string, string>
+): string {
+  return JSON.stringify({
+    js,
+    virtualResolution: virtualResolutionFingerprint(cached?.virtualImports ?? [], virtualModules),
+    packageResolution: packageResolutionFingerprint(cached?.packageImports ?? [], packageFiles)
+  });
+}
+
+function virtualResolutionFingerprint(imports: string[], virtualModules: Record<string, { outputPath: string }>): Array<[string, string | undefined]> {
+  return [...new Set(imports)].sort().map((specifier) => [specifier, virtualModules[specifier]?.outputPath]);
+}
+
+function packageResolutionFingerprint(imports: string[], packageFiles?: Record<string, string>): Array<[string, string | undefined]> {
+  return [...new Set(imports)].sort().map((specifier) => [specifier, resolvePackageModulePathForFingerprint(specifier, packageFiles)]);
+}
+
+function resolvePackageModulePathForFingerprint(specifier: string, packageFiles?: Record<string, string>): string | undefined {
+  if (!packageFiles) return undefined;
+  const parts = specifier.split("/");
+  const packageName = specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+  if (!packageName) return undefined;
+  const packageRoot = `node_modules/${packageName}`;
+  const packageJson = packageFiles[`${packageRoot}/package.json`];
+  return packageJson;
 }
 
 function failedCompile(
@@ -506,7 +591,8 @@ function cloneLocalCacheEntry(entry: LocalModuleCacheEntry): LocalModuleCacheEnt
     cacheKey: entry.cacheKey,
     outputPath: entry.outputPath,
     content: cloneModuleContent(entry.content),
-    packageImports: [...entry.packageImports]
+    packageImports: [...entry.packageImports],
+    virtualImports: [...entry.virtualImports]
   };
 }
 
@@ -515,7 +601,8 @@ function cloneVirtualCacheEntry(entry: VirtualModuleCacheEntry): VirtualModuleCa
     cacheKey: entry.cacheKey,
     outputPath: entry.outputPath,
     content: cloneModuleContent(entry.content),
-    packageImports: [...entry.packageImports]
+    packageImports: [...entry.packageImports],
+    virtualImports: [...entry.virtualImports]
   };
 }
 
@@ -601,15 +688,6 @@ function sorted(values: Set<string>): string[] {
 
 function sortedDifference(previous: Set<string>, next: Set<string>): string[] {
   return Array.from(previous).filter((value) => !next.has(value)).sort();
-}
-
-function stableHash(value: string): string {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 function collectArrayLike(value: unknown): unknown[] {

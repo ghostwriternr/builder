@@ -281,9 +281,9 @@ The session API now proves workflow semantics and a first builder-side transform
 - `compile()` returns the normal `ReactWorkerBuildOutput` fields plus session metadata for changed/deleted first-party files, virtual modules, and package snapshot files;
 - `compile().session.cache` reports `transformedModules`, `reusedModules`, `droppedModules`, `graphRebuilt`, `graphScannedModules`, `graphReusedModules`, and `packageGraphRebuilt`;
 - `updateFile()`, `deleteFile()`, `setVirtualModule()`, `deleteVirtualModule()`, `setPackageFile()`, and `deletePackageFile()` mutate a defensive session-owned input copy;
-- unchanged transformed local module and virtual JS module outputs are reused when rewritten source, JSX settings, and resolution context are unchanged;
-- unchanged local graph specifier scans are reused when the source and resolution context are unchanged;
-- package graph output is reused when the package import list and package snapshot are unchanged;
+- unchanged transformed local module and virtual JS module outputs are reused when rewritten source, JSX settings, and observed virtual/package import fingerprints are unchanged;
+- unchanged local graph specifier scans are reused when the filename and source hash are unchanged;
+- package graph output is reused when the package import list and active package roots are unchanged, so unused package snapshot edits do not rebuild the active package graph while newly added candidate files in active package roots are still observed;
 - failed compiles return current diagnostics without replacing `getLastSuccessfulBuild()` or the last successful cache;
 - common local graph and post-transform import diagnostics include source locations; local graph diagnostics map to the original caller source, while post-transform validation diagnostics use Oxc transform source maps internally only for mapped generated positions and fall back to generated emitted module source for unmapped generated code;
 - recovery after failure updates the last-successful build and revision;
@@ -291,7 +291,7 @@ The session API now proves workflow semantics and a first builder-side transform
 
 Worker Loader constraints still matter: Dynamic Worker definitions are complete `mainModule + modules` maps, and workerd compiles/parses all modules for a newly loaded isolate. Worker Loader caches by ID, and docs require a new ID when code changes. Therefore this cache reduces builder compile latency and repeated Oxc parse/transform work; it does not implement Worker Loader partial updates or eliminate Dynamic Worker startup compilation for a new ID/code pair. To respect the 128 MB isolate memory limit, the session cache stores module specifier metadata, rewritten source keys, and transformed module outputs, not full materialized ASTs by default.
 
-Current limitation: reachability is still recomputed conservatively each compile. The next optimization step would invalidate dependents only when import/export specifiers change and possibly avoid walking known-unaffected subgraphs.
+Current limitation: reachability is still recomputed conservatively each compile. The session cache is now more selective about transform/package invalidation, but it is not a full dev-server module graph with importer/importee invalidation. The next optimization step would invalidate dependents only when import/export specifiers change and possibly avoid walking known-unaffected subgraphs.
 
 ### Session cache measurement signals
 

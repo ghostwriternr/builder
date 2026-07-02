@@ -343,7 +343,7 @@ export function processModuleSpecifiersWithOxc(
   virtualModules: Record<string, NormalizedVirtualModule>,
   packageFiles?: Record<string, string>,
   sourceMapContext?: SourceMapContext
-): { ok: true; code: string; packageImports: string[]; diagnostics: [] } | { ok: false; code: string; packageImports: string[]; diagnostics: ToolchainDiagnostic[] } {
+): { ok: true; code: string; packageImports: string[]; virtualImports: string[]; diagnostics: [] } | { ok: false; code: string; packageImports: string[]; virtualImports: string[]; diagnostics: ToolchainDiagnostic[] } {
   return processModuleSpecifiers(parser, filename, code, virtualModules, packageFiles, sourceMapContext);
 }
 
@@ -359,10 +359,11 @@ function processModuleSpecifiers(
   virtualModules: Record<string, NormalizedVirtualModule>,
   packageFiles?: Record<string, string>,
   sourceMapContext?: SourceMapContext
-): { ok: true; code: string; packageImports: string[]; diagnostics: [] } | { ok: false; code: string; packageImports: string[]; diagnostics: ToolchainDiagnostic[] } {
+): { ok: true; code: string; packageImports: string[]; virtualImports: string[]; diagnostics: [] } | { ok: false; code: string; packageImports: string[]; virtualImports: string[]; diagnostics: ToolchainDiagnostic[] } {
   const diagnostics: ToolchainDiagnostic[] = [];
   const rewrites: Array<{ start: number; end: number; value: string }> = [];
   const packageImports = new Set<string>();
+  const virtualImports = new Set<string>();
 
   let specifiers: ModuleSpecifier[];
   try {
@@ -372,7 +373,8 @@ function processModuleSpecifiers(
       ok: false,
       code,
       packageImports: [],
-      diagnostics: [diagnostic("oxc-transform", "transform-failed", `Could not validate imports in ${filename}.`, error)]
+      diagnostics: [diagnostic("oxc-transform", "transform-failed", `Could not validate imports in ${filename}.`, error)],
+      virtualImports: []
     };
   }
 
@@ -398,6 +400,7 @@ function processModuleSpecifiers(
 
     const virtualModule = virtualModules[rawSpecifier];
     if (virtualModule !== undefined) {
+      virtualImports.add(rawSpecifier);
       rewrites.push({
         start: specifier.start,
         end: specifier.end,
@@ -429,8 +432,8 @@ function processModuleSpecifiers(
     );
   }
 
-  if (diagnostics.length > 0) return { ok: false, code, packageImports: Array.from(packageImports), diagnostics };
-  return { ok: true, code: applyRewrites(code, rewrites), packageImports: Array.from(packageImports), diagnostics: [] };
+  if (diagnostics.length > 0) return { ok: false, code, packageImports: Array.from(packageImports), virtualImports: Array.from(virtualImports), diagnostics };
+  return { ok: true, code: applyRewrites(code, rewrites), packageImports: Array.from(packageImports), virtualImports: Array.from(virtualImports), diagnostics: [] };
 }
 
 function postTransformDiagnostic(

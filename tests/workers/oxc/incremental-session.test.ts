@@ -257,6 +257,100 @@ export default { async fetch() { return new Response(message) } }
     expect(third.modules?.["app/config.js"]).toEqual({ js: expect.stringContaining("changed") });
   });
 
+  test("reuses local transforms when unrelated virtual modules change", async () => {
+    const session = experimentalCreateDynamicWorkerBuildSession({
+      entrypoint: "src/index.tsx",
+      files: {
+        "src/index.tsx": `import { message } from "./message";
+export default { async fetch() { return new Response(message) } }
+`,
+        "src/message.tsx": `export const message = "local";`,
+      },
+    });
+
+    const first = await session.compile();
+    expect(first.ok).toBe(true);
+
+    session.setVirtualModule("unused/virtual", { js: `export const unused = true;` });
+    const second = await session.compile();
+    expect(second.ok).toBe(true);
+    expect(second.session.changedVirtualModules).toEqual(["unused/virtual"]);
+    expect(second.session.cache).toMatchObject({
+      transformedModules: ["unused/virtual.js"],
+      reusedModules: ["src/index.js", "src/message.js"],
+      packageGraphRebuilt: false,
+    });
+  });
+
+  test("reuses package graph when unused package snapshots change", async () => {
+    const session = experimentalCreateDynamicWorkerBuildSession({
+      entrypoint: "src/index.tsx",
+      files: {
+        "src/index.tsx": `import { label } from "pkg";
+export default { async fetch() { return new Response(label) } }
+`,
+      },
+      packageFiles: {
+        "node_modules/pkg/package.json": JSON.stringify({ name: "pkg", exports: "./index.js" }),
+        "node_modules/pkg/index.js": `export const label = "active";`,
+        "node_modules/unused/package.json": JSON.stringify({ name: "unused", exports: "./index.js" }),
+        "node_modules/unused/index.js": `export const label = "unused";`,
+      },
+    });
+
+    const first = await session.compile();
+    expect(first.ok).toBe(true);
+    expect(first.session.cache?.packageGraphRebuilt).toBe(true);
+
+    session.setPackageFile("node_modules/unused/index.js", `export const label = "changed unused";`);
+    session.setPackageFile("node_modules/unused/package.json", JSON.stringify({ name: "unused", exports: "./changed.js" }));
+    const second = await session.compile();
+    expect(second.ok).toBe(true);
+    expect(second.session.changedPackageFiles).toEqual(["node_modules/unused/index.js", "node_modules/unused/package.json"]);
+    expect(second.session.cache).toMatchObject({
+      transformedModules: [],
+      reusedModules: ["src/index.js"],
+      packageGraphRebuilt: false,
+    });
+    expect(second.modules?.["node_modules/pkg/index.js"]).toEqual({ js: expect.stringContaining("active") });
+  });
+
+  test("rebuilds package graph when a higher-priority relative candidate is added", async () => {
+    const session = experimentalCreateDynamicWorkerBuildSession({
+      entrypoint: "src/index.tsx",
+      files: {
+        "src/index.tsx": `import { label } from "candidate-pkg";
+export default { async fetch() { return new Response(label) } }
+`,
+      },
+      packageFiles: {
+        "node_modules/candidate-pkg/package.json": JSON.stringify({ name: "candidate-pkg", exports: "./index.js" }),
+        "node_modules/candidate-pkg/index.js": `import { label } from "./dep";
+export { label };
+`,
+        "node_modules/candidate-pkg/dep.mjs": `export const label = "mjs dependency";`,
+      },
+    });
+
+    const first = await session.compile();
+    expect(first.ok).toBe(true);
+    expect(first.modules?.["node_modules/candidate-pkg/index.js"]).toEqual({ js: expect.stringContaining("./dep.mjs") });
+    expect(first.modules?.["node_modules/candidate-pkg/dep.mjs"]).toEqual({ js: expect.stringContaining("mjs dependency") });
+
+    session.setPackageFile("node_modules/candidate-pkg/dep.js", `export const label = "js dependency";`);
+    const second = await session.compile();
+    expect(second.ok).toBe(true);
+    expect(second.session.cache).toMatchObject({
+      transformedModules: [],
+      reusedModules: ["src/index.js"],
+      droppedModules: ["node_modules/candidate-pkg/dep.mjs"],
+      packageGraphRebuilt: true,
+    });
+    expect(second.modules?.["node_modules/candidate-pkg/index.js"]).toEqual({ js: expect.stringContaining("./dep.js") });
+    expect(second.modules?.["node_modules/candidate-pkg/dep.js"]).toEqual({ js: expect.stringContaining("js dependency") });
+    expect(second.modules?.["node_modules/candidate-pkg/dep.mjs"]).toBeUndefined();
+  });
+
   test("tracks package file edits and package graph cache invalidation", async () => {
     const session = experimentalCreateDynamicWorkerBuildSession({
       entrypoint: "src/index.tsx",
@@ -322,6 +416,19 @@ export default { async fetch() { return new Response(message) } }
       packageGraphRebuilt: true,
     });
     expect(changedPackageFile.modules?.["node_modules/other/index.js"]).toEqual({ js: expect.stringContaining("changed") });
+
+    session.setPackageFile("node_modules/other/package.json", JSON.stringify({ name: "other", exports: "./alt.js" }));
+    session.setPackageFile("node_modules/other/alt.js", `export const label = "alternate";`);
+    const changedPackageExport = await session.compile();
+    expect(changedPackageExport.ok).toBe(true);
+    expect(changedPackageExport.session.cache).toMatchObject({
+      transformedModules: ["src/index.js"],
+      reusedModules: [],
+      droppedModules: ["node_modules/other/index.js"],
+      packageGraphRebuilt: true,
+    });
+    expect(changedPackageExport.modules?.["node_modules/other/alt.js"]).toEqual({ js: expect.stringContaining("alternate") });
+    expect(changedPackageExport.modules?.["node_modules/other/index.js"]).toBeUndefined();
   });
 
   test("returns defensive input and last-successful-build copies", async () => {
